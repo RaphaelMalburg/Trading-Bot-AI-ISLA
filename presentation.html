@@ -465,9 +465,9 @@
                             <h4 style="color: #00b894; margin:0 0 10px 0;">Random Forest (Bagging)</h4>
                             <p style="font-size:0.6em; color:#aaa; margin:0;">Processamento Paralelo Descentralizado</p>
                             <div class="d-row">
-                                <div class="d-box" style="padding:10px;">Árvore 1<br><small>Analisa RSI</small></div>
-                                <div class="d-box" style="padding:10px;">Árvore 2<br><small>Analisa ATR</small></div>
-                                <div class="d-box" style="padding:10px;">Árvore N<br><small>Analisa Lags</small></div>
+                                <div class="d-box" style="padding:10px;">Árvore 1<br><small>Subset Aleatório A<br>(ex: RSI, Volume)</small></div>
+                                <div class="d-box" style="padding:10px;">Árvore 2<br><small>Subset Aleatório B<br>(ex: ATR, Lags)</small></div>
+                                <div class="d-box" style="padding:10px;">Árvore N<br><small>Subset Aleatório C<br>(ex: MACD, EMA)</small></div>
                             </div>
                             <div class="d-arrow"><i class="fas fa-arrow-down"></i></div>
                             <div class="d-box d-ml" style="margin-top:10px;">Voto Majoritário (Consenso)</div>
@@ -475,7 +475,7 @@
                     </div>
                     <p style="font-size: 0.8em; margin-top: 20px;">
                         <div class="info-card" style="margin-top: 15px; border-color: #00b894; text-align: left;">
-                            <i class="fas fa-check-circle" style="color: #00b894;"></i> <strong>Veredito do Projeto:</strong> O mercado de criptomoedas é extremamente ruidoso. O modelo <strong>Random Forest</strong> (usado em produção) cria centenas de árvores independentes que chegam a uma decisão por "consenso". Isso o torna incrivelmente resiliente a ruídos e evita o <em>overfitting</em> (decorar o passado em vez de aprender padrões).
+                            <i class="fas fa-check-circle" style="color: #00b894;"></i> <strong>Veredito do Projeto:</strong> O modelo cria centenas de árvores. Cada árvore olha apenas para uma mistura aleatória das features (não para todas). Isso cria "especialistas diferentes" que não são enviesados. A decisão final é tomada por consenso, tornando o sistema incrivelmente resiliente a ruídos e evitando o <em>overfitting</em> (decorar o passado).
                         </div>
                     </p>
                 </section>
