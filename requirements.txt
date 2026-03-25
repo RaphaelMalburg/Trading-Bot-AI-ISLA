@@ -1,0 +1,12 @@
+alpaca-py
+pandas
+numpy
+scikit-learn
+xgboost
+ta
+matplotlib
+seaborn
+python-dotenv
+joblib
+pytz
+plotly
