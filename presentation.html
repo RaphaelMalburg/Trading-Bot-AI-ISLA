@@ -559,8 +559,43 @@ Responda APENAS com um JSON contendo:
             <!-- Slide 5.5: Feature Importance & Dashboard -->
             <section>
                 <section>
-                    <h2>O que o Bot "Enxerga"? (Feature Importance)</h2>
-                    <p>Quais variáveis o Machine Learning considera mais importantes para prever o mercado?</p>
+                    <h2>O que o Bot "Enxerga"? (Feature Engineering)</h2>
+                    <p>O Machine Learning não olha para o gráfico, ele processa <strong>12 variáveis matemáticas (features)</strong> calculadas a cada hora. Elas são divididas em 4 pilares:</p>
+                    
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 20px;">
+                        <div class="info-card" style="flex: 1; min-width: 45%; border-color: #4facf7; padding: 10px;">
+                            <h4 style="color: #4facf7; font-size: 0.9em;"><i class="fas fa-tachometer-alt"></i> 1. Momento (Força)</h4>
+                            <ul style="font-size: 0.8em; margin-left: 20px; padding-left: 0;">
+                                <li><strong>RSI (14):</strong> Identifica se está sobrecomprado/sobrevendido.</li>
+                                <li><strong>Stochastic K:</strong> Confirma perda de força do movimento.</li>
+                            </ul>
+                        </div>
+                        <div class="info-card" style="flex: 1; min-width: 45%; border-color: #00b894; padding: 10px;">
+                            <h4 style="color: #00b894; font-size: 0.9em;"><i class="fas fa-chart-line"></i> 2. Tendência (Direção)</h4>
+                            <ul style="font-size: 0.8em; margin-left: 20px; padding-left: 0;">
+                                <li><strong>MACD (Linha, Sinal, Histograma):</strong> Aceleração da tendência.</li>
+                                <li><strong>Distância EMA (20, 50, 200):</strong> Quão longe o preço está da média em %.</li>
+                            </ul>
+                        </div>
+                        <div class="info-card" style="flex: 1; min-width: 45%; border-color: #fdcb6e; padding: 10px;">
+                            <h4 style="color: #fdcb6e; font-size: 0.9em;"><i class="fas fa-bolt"></i> 3. Volatilidade (Caos)</h4>
+                            <ul style="font-size: 0.8em; margin-left: 20px; padding-left: 0;">
+                                <li><strong>Bollinger Bands Width:</strong> Mede o "esmagamento" do preço.</li>
+                                <li><strong>ATR (14):</strong> Tamanho absoluto dos candles (crucial pro risco).</li>
+                            </ul>
+                        </div>
+                        <div class="info-card" style="flex: 1; min-width: 45%; border-color: #ff7675; padding: 10px;">
+                            <h4 style="color: #ff7675; font-size: 0.9em;"><i class="fas fa-water"></i> 4. Liquidez & Preço</h4>
+                            <ul style="font-size: 0.8em; margin-left: 20px; padding-left: 0;">
+                                <li><strong>OBV (On-Balance Volume):</strong> Confirma se o dinheiro real apoia a alta.</li>
+                                <li><strong>Log Return:</strong> Variação percentual normalizada da última hora.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+                <section>
+                    <h2>Feature Importance (O que mais importa?)</h2>
+                    <p>Das 12 features, quais o algoritmo considerou mais vitais para acertar a previsão?</p>
                     
                     <div style="display: flex; gap: 20px; align-items: center; justify-content: center; margin-top: 20px;">
                         <div style="flex: 1; text-align: left; font-size: 0.8em;">
