@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="300">
+    <title>ML Trading Bot - Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        header h1 { font-size: 22px; color: #fff; }
+        .badges span {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .badge-live { background: #1b5e20; color: #69f0ae; }
+        .badge-h1 { background: #1a237e; color: #82b1ff; }
+        .badge-paper { background: #4a148c; color: #ce93d8; }
+
+        /* Stat cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; color: #fff; }
+        .stat-label { font-size: 13px; color: #888; margin-top: 4px; }
+        .positive { color: #69f0ae; }
+        .negative { color: #ff5252; }
+
+        /* Cards */
+        .card {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .card h2 {
+            font-size: 16px;
+            color: #b0bec5;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Pipeline steps */
+        .pipeline-steps {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .step-badge {
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .step-ok { background: #1b5e20; color: #69f0ae; }
+        .step-error { background: #b71c1c; color: #ff8a80; }
+
+        /* Prediction display */
+        .prediction-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .pred-item { padding: 12px; background: #16213e; border-radius: 8px; }
+        .pred-item .label { font-size: 12px; color: #888; text-transform: uppercase; }
+        .pred-item .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+        .buy-signal { color: #69f0ae; }
+        .sell-signal { color: #ff5252; }
+        .neutral-signal { color: #ffab40; }
+
+        /* Headlines */
+        .headlines { list-style: none; padding: 0; }
+        .headlines li {
+            padding: 6px 0;
+            border-bottom: 1px solid #2a2a4a;
+            font-size: 13px;
+            color: #b0bec5;
+        }
+        .headlines li:last-child { border-bottom: none; }
+
+        /* Features table */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+        }
+        .feature-item {
+            padding: 8px 12px;
+            background: #16213e;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .feature-item .label { color: #888; }
+        .feature-item .value { color: #fff; font-weight: 600; }
+
+        /* Runs table */
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid #2a2a4a;
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 14px;
+        }
+        tr:hover td { background: #16213e; }
+
+        /* Chart container */
+        #chart-container { border-radius: 12px; overflow: hidden; }
+
+        footer {
+            text-align: center;
+            color: #555;
+            font-size: 12px;
+            padding: 20px 0;
+        }
+
+        .waiting-message {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+            font-size: 18px;
+        }
+        .waiting-message .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid #333;
+            border-top-color: #69f0ae;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>ML Trading Bot Dashboard</h1>
+    <div class="badges">
+        <span class="badge-live">LIVE</span>
+        <span class="badge-h1">H1</span>
+        <span class="badge-paper">PAPER TRADING</span>
+    </div>
+</header>
+
+{% if not run %}
+<div class="card">
+    <div class="waiting-message">
+        <span class="spinner"></span>
+        Waiting for first bot run... The bot executes on startup and then every hour.
+        <br><small>This page auto-refreshes every 5 minutes.</small>
+    </div>
+</div>
+{% else %}
+
+<!-- Stat Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">${{ "%.2f"|format(run.equity|default(0)) }}</div>
+        <div class="stat-label">Equity</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">${{ "%.2f"|format(run.buying_power|default(0)) }}</div>
+        <div class="stat-label">Buying Power</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value {{ 'positive' if (run.pnl_today|default(0)) >= 0 else 'negative' }}">
+            {{ "%+.2f"|format(run.pnl_today|default(0)) }}
+        </div>
+        <div class="stat-label">PnL Today ($)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value {{ 'positive' if (run.pnl_today_pct|default(0)) >= 0 else 'negative' }}">
+            {{ "%+.2f"|format(run.pnl_today_pct|default(0)) }}%
+        </div>
+        <div class="stat-label">PnL Today (%)</div>
+    </div>
+</div>
+
+<!-- Current Run Details -->
+<div class="card">
+    <h2>Current Run &mdash; {{ run.timestamp[:19] if run.timestamp else 'N/A' }} UTC</h2>
+
+    <!-- Pipeline Steps -->
+    <div class="pipeline-steps">
+        {% for step in run.steps|default([]) %}
+        <div class="step-badge {{ 'step-ok' if step.status == 'ok' else 'step-error' }}">
+            {{ step.name }} ({{ step.duration_ms }}ms)
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if run.error %}
+    <div style="background: #b71c1c; color: #ffcdd2; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        Error: {{ run.error }}
+    </div>
+    {% endif %}
+
+    <!-- Prediction + Sentiment + Action -->
+    <div class="prediction-grid">
+        <div class="pred-item">
+            <div class="label">Prediction</div>
+            <div class="value {{ 'buy-signal' if run.prediction == 1 else 'sell-signal' }}">
+                {{ run.prediction_label|default('N/A') }}
+            </div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Confidence</div>
+            <div class="value">{{ "%.1f"|format((run.confidence|default(0)) * 100) }}%</div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Sentiment</div>
+            <div class="value {% if (run.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (run.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
+                {{ "%+.2f"|format(run.sentiment_score|default(0)) }}
+            </div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Action</div>
+            <div class="value">{{ run.action|default('N/A') }}</div>
+        </div>
+        <div class="pred-item">
+            <div class="label">BTC Price</div>
+            <div class="value">${{ "%.2f"|format(run.btc_close|default(0)) }}</div>
+        </div>
+        {% if run.position_qty %}
+        <div class="pred-item">
+            <div class="label">Position Size</div>
+            <div class="value">{{ "%.4f"|format(run.position_qty) }} BTC ({{ "%.1f"|format(run.leverage|default(0)) }}x)</div>
+        </div>
+        {% endif %}
+        {% if run.stop_loss %}
+        <div class="pred-item">
+            <div class="label">Stop Loss</div>
+            <div class="value sell-signal">${{ "%.2f"|format(run.stop_loss) }}</div>
+        </div>
+        {% endif %}
+        {% if run.take_profit %}
+        <div class="pred-item">
+            <div class="label">Take Profit</div>
+            <div class="value buy-signal">${{ "%.2f"|format(run.take_profit) }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Headlines -->
+{% if run.headlines %}
+<div class="card">
+    <h2>Latest News Headlines</h2>
+    <ul class="headlines">
+        {% for h in run.headlines %}
+        <li>{{ h }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<!-- Candlestick Chart -->
+<div class="card">
+    <h2>Price Chart &mdash; BTC/USD H1</h2>
+    <div id="chart-container"></div>
+</div>
+
+<!-- Feature Values -->
+{% if run.indicators %}
+<div class="card">
+    <h2>Current Feature Values</h2>
+    <div class="features-grid">
+        <div class="feature-item"><span class="label">RSI (14):</span> <span class="value">{{ "%.1f"|format(run.indicators.rsi) }}</span></div>
+        <div class="feature-item"><span class="label">MACD:</span> <span class="value">{{ "%.2f"|format(run.indicators.macd) }}</span></div>
+        <div class="feature-item"><span class="label">MACD Signal:</span> <span class="value">{{ "%.2f"|format(run.indicators.macd_signal) }}</span></div>
+        <div class="feature-item"><span class="label">EMA 20:</span> <span class="value">${{ "%.0f"|format(run.indicators.ema20) }}</span></div>
+        <div class="feature-item"><span class="label">BB Width:</span> <span class="value">{{ "%.4f"|format(run.indicators.bb_width) }}</span></div>
+        <div class="feature-item"><span class="label">ATR (14):</span> <span class="value">${{ "%.2f"|format(run.indicators.atr) }}</span></div>
+        <div class="feature-item"><span class="label">BB Upper:</span> <span class="value">${{ "%.0f"|format(run.indicators.bb_high) }}</span></div>
+        <div class="feature-item"><span class="label">BB Lower:</span> <span class="value">${{ "%.0f"|format(run.indicators.bb_low) }}</span></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Last 10 Runs -->
+{% if runs|length > 0 %}
+<div class="card">
+    <h2>Last {{ runs|length }} Runs</h2>
+    <div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Prediction</th>
+                <th>Confidence</th>
+                <th>Sentiment</th>
+                <th>Action</th>
+                <th>BTC Price</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in runs|reverse %}
+            <tr>
+                <td>{{ r.timestamp[:19] if r.timestamp else 'N/A' }}</td>
+                <td class="{{ 'buy-signal' if r.prediction == 1 else 'sell-signal' }}">
+                    {{ r.prediction_label|default('N/A') }}
+                </td>
+                <td>{{ "%.1f"|format((r.confidence|default(0)) * 100) }}%</td>
+                <td class="{% if (r.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (r.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
+                    {{ "%+.2f"|format(r.sentiment_score|default(0)) }}
+                </td>
+                <td>{{ r.action|default('N/A') }}</td>
+                <td>${{ "%.2f"|format(r.btc_close|default(0)) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Plotly chart render -->
+<script>
+    var chartData = {{ chart_json|safe }};
+    if (chartData && chartData.data) {
+        Plotly.newPlot('chart-container', chartData.data, chartData.layout, {responsive: true});
+    }
+</script>
+
+{% endif %}
+
+<footer>
+    Auto-refreshes every 5 minutes &middot; Paper Trading &middot; ML Trading Bot
+</footer>
+
+</body>
+</html>

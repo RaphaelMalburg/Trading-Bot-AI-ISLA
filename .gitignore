@@ -36,7 +36,9 @@ venv/
 data/
 models/*
 !models/dream_dynamic.png
-*.pkl
+!models/rf_model.pkl
+!models/model_features.pkl
+!models/feature_names.pkl
 *.h5
 *.csv
 logs/
