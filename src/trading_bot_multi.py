@@ -123,8 +123,20 @@ def calculate_position_size(capital, current_price, atr):
     risk_amount = capital * MAX_RISK_PER_TRADE
     position_value = risk_amount / stop_pct
 
-    max_pos = capital * 5.0
-    min_pos = capital * 0.1
+    # Adaptive leverage based on account size
+    # Small accounts (<$1k): 1x only (no leverage, safe for underfunded accounts)
+    # Medium accounts ($1k-$10k): scale from 1x to 5x
+    # Large accounts (>$10k): full 5x leverage
+    if capital < 1000:
+        max_leverage = 1.0
+    elif capital < 10000:
+        # Linear interpolation: 1x at $1k, 5x at $10k
+        max_leverage = 1.0 + (capital - 1000) / 9000 * 4.0
+    else:
+        max_leverage = 5.0
+
+    max_pos = capital * max_leverage
+    min_pos = capital * 0.05  # Reduced minimum to 5% (vs 10%)
     final_pos_value = min(max(position_value, min_pos), max_pos)
 
     qty = final_pos_value / current_price
