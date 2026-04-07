@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -c \"from src.run_store import add_run, get_latest, get_last_n; print\\('run_store OK'\\)\")",
+      "Bash(python -c \"from src.charts import build_candlestick_chart; print\\('charts OK'\\)\")",
+      "Bash(python -c \"from src.app import app; print\\('app OK'\\)\")",
+      "Bash(timeout 45 python -m src.app)",
+      "Bash(curl -s http://localhost:5000)",
+      "Bash(railway --version)"
+    ]
+  }
+}

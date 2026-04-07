@@ -33,7 +33,8 @@ wheels/
 venv/
 
 # Data and Models
-data/
+data/*
+!data/.gitkeep
 models/*
 !models/dream_dynamic.png
 !models/rf_model.pkl

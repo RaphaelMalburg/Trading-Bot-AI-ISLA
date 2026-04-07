@@ -20,6 +20,7 @@ from flask import Flask, render_template, jsonify
 from src.trading_bot_multi import trade_logic_multi
 from src.run_store import add_run, get_latest, get_last_n
 from src.charts import build_candlestick_chart
+from src.database import init_db, store_run, get_recent_runs, get_closed_trades, get_statistics, get_todays_statistics
 
 # Logging
 logging.basicConfig(
@@ -40,7 +41,17 @@ def dashboard():
     run = get_latest()
     runs = get_last_n(10)
     chart_json = build_candlestick_chart(run) if run else "{}"
-    return render_template("dashboard.html", run=run, runs=runs, chart_json=chart_json)
+
+    # Get trade data
+    closed_trades = get_closed_trades(20)
+    stats_overall = get_statistics()
+    stats_today = get_todays_statistics()
+
+    return render_template("dashboard.html",
+                         run=run, runs=runs, chart_json=chart_json,
+                         closed_trades=closed_trades,
+                         stats_overall=stats_overall,
+                         stats_today=stats_today)
 
 
 @app.route("/api/latest")
@@ -71,6 +82,7 @@ def bot_loop():
         result = trade_logic_multi()
         if result:
             add_run(result)
+            store_run(result)  # Persist to database
             logger.info(f"Initial run complete. Action: {result.get('action', 'N/A')}")
     except Exception as e:
         logger.error(f"Initial run failed: {e}")
@@ -90,6 +102,7 @@ def bot_loop():
             result = trade_logic_multi()
             if result:
                 add_run(result)
+                store_run(result)  # Persist to database
                 logger.info(f"Run complete. Action: {result.get('action', 'N/A')}")
 
         except Exception as e:
@@ -99,6 +112,10 @@ def bot_loop():
 
 
 if __name__ == "__main__":
+    # Initialize database
+    logger.info("Initializing database...")
+    init_db()
+
     # Start bot in background thread
     bot_thread = threading.Thread(target=bot_loop, daemon=True)
     bot_thread.start()

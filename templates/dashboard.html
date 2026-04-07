@@ -40,7 +40,7 @@
         /* Stat cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 16px;
             margin-bottom: 24px;
         }
@@ -48,13 +48,44 @@
             background: #1a1a2e;
             border: 1px solid #2a2a4a;
             border-radius: 12px;
-            padding: 20px;
+            padding: 16px;
             text-align: center;
         }
-        .stat-value { font-size: 28px; font-weight: 700; color: #fff; }
-        .stat-label { font-size: 13px; color: #888; margin-top: 4px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #fff; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
         .positive { color: #69f0ae; }
         .negative { color: #ff5252; }
+
+        /* Summary statistics */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+        .summary-card {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .summary-card h3 {
+            font-size: 13px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #2a2a4a;
+            font-size: 13px;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-label { color: #888; }
+        .summary-value { color: #fff; font-weight: 600; }
 
         /* Cards */
         .card {
@@ -88,6 +119,17 @@
         .step-ok { background: #1b5e20; color: #69f0ae; }
         .step-error { background: #b71c1c; color: #ff8a80; }
 
+        /* Alert box */
+        .alert-box {
+            background: #b71c1c;
+            color: #ffcdd2;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .alert-warning { background: #e65100; color: #ffe0b2; }
+
         /* Prediction display */
         .prediction-grid {
             display: grid;
@@ -95,8 +137,9 @@
             gap: 16px;
         }
         .pred-item { padding: 12px; background: #16213e; border-radius: 8px; }
-        .pred-item .label { font-size: 12px; color: #888; text-transform: uppercase; }
-        .pred-item .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+        .pred-item .label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .pred-item .value { font-size: 18px; font-weight: 600; margin-top: 6px; }
+        .pred-item .context { font-size: 11px; color: #666; margin-top: 4px; }
         .buy-signal { color: #69f0ae; }
         .sell-signal { color: #ff5252; }
         .neutral-signal { color: #ffab40; }
@@ -104,27 +147,29 @@
         /* Headlines */
         .headlines { list-style: none; padding: 0; }
         .headlines li {
-            padding: 6px 0;
+            padding: 8px 0;
             border-bottom: 1px solid #2a2a4a;
             font-size: 13px;
             color: #b0bec5;
+            line-height: 1.4;
         }
         .headlines li:last-child { border-bottom: none; }
 
         /* Features table */
         .features-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 8px;
         }
         .feature-item {
             padding: 8px 12px;
             background: #16213e;
             border-radius: 6px;
-            font-size: 13px;
+            font-size: 12px;
         }
         .feature-item .label { color: #888; }
         .feature-item .value { color: #fff; font-weight: 600; }
+        .feature-item .context { color: #666; font-size: 10px; margin-top: 2px; }
 
         /* Runs table */
         table { width: 100%; border-collapse: collapse; }
@@ -133,14 +178,14 @@
             padding: 10px 12px;
             border-bottom: 2px solid #2a2a4a;
             color: #888;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         td {
             padding: 10px 12px;
             border-bottom: 1px solid #1a1a2e;
-            font-size: 14px;
+            font-size: 13px;
         }
         tr:hover td { background: #16213e; }
 
@@ -172,6 +217,10 @@
             vertical-align: middle;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        .trade-win { color: #69f0ae; }
+        .trade-loss { color: #ff5252; }
+        .trade-pending { color: #ffab40; }
     </style>
 </head>
 <body>
@@ -195,7 +244,7 @@
 </div>
 {% else %}
 
-<!-- Stat Cards -->
+<!-- Account Stat Cards -->
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value">${{ "%.2f"|format(run.equity|default(0)) }}</div>
@@ -219,6 +268,67 @@
     </div>
 </div>
 
+<!-- Summary Statistics -->
+{% if stats_today or stats_overall %}
+<div class="summary-grid">
+    <div class="summary-card">
+        <h3>Today's Performance</h3>
+        <div class="summary-row">
+            <span class="summary-label">Signals:</span>
+            <span class="summary-value">{{ stats_today.total|default(0) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Trades Won:</span>
+            <span class="summary-value positive">{{ stats_today.won|default(0) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Trades Lost:</span>
+            <span class="summary-value negative">{{ stats_today.lost|default(0) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Win Rate:</span>
+            <span class="summary-value">{{ "%.1f"|format(stats_today.win_rate|default(0)) }}%</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Today P&L:</span>
+            <span class="summary-value {{ 'positive' if (stats_today.pnl|default(0)) >= 0 else 'negative' }}">
+                {{ "%+.2f"|format(stats_today.pnl|default(0)) }}
+            </span>
+        </div>
+    </div>
+
+    <div class="summary-card">
+        <h3>All-Time Statistics</h3>
+        <div class="summary-row">
+            <span class="summary-label">Total Trades:</span>
+            <span class="summary-value">{{ stats_overall.total_trades|default(0) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Closed Trades:</span>
+            <span class="summary-value">{{ stats_overall.closed_trades|default(0) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Win Rate:</span>
+            <span class="summary-value">{{ "%.1f"|format(stats_overall.win_rate|default(0)) }}%</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Total P&L:</span>
+            <span class="summary-value {{ 'positive' if (stats_overall.total_pnl|default(0)) >= 0 else 'negative' }}">
+                {{ "%+.2f"|format(stats_overall.total_pnl|default(0)) }}
+            </span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Best Trade:</span>
+            <span class="summary-value positive">{{ "%+.2f"|format(stats_overall.best_trade|default(0)) }}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Worst Trade:</span>
+            <span class="summary-value negative">{{ "%+.2f"|format(stats_overall.worst_trade|default(0)) }}</span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Current Run Details -->
 <div class="card">
     <h2>Current Run &mdash; {{ run.timestamp[:19] if run.timestamp else 'N/A' }} UTC</h2>
@@ -232,9 +342,13 @@
         {% endfor %}
     </div>
 
-    {% if run.error %}
-    <div style="background: #b71c1c; color: #ffcdd2; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-        Error: {{ run.error }}
+    {% if run.action == 'ORDER_ERROR' and run.error %}
+    <div class="alert-box alert-warning">
+        ⚠ Order Rejected: {{ run.error|replace('insufficient balance for USD (requested: ', 'Need $')|replace(', available: ', ' but only have $')|replace(')', '') }}
+    </div>
+    {% elif run.error %}
+    <div class="alert-box">
+        ❌ Error: {{ run.error }}
     </div>
     {% endif %}
 
@@ -245,20 +359,27 @@
             <div class="value {{ 'buy-signal' if run.prediction == 1 else 'sell-signal' }}">
                 {{ run.prediction_label|default('N/A') }}
             </div>
+            <div class="context">{{ ['Price Down', 'Price Up'][run.prediction|default(0)] }}</div>
         </div>
         <div class="pred-item">
             <div class="label">Confidence</div>
             <div class="value">{{ "%.1f"|format((run.confidence|default(0)) * 100) }}%</div>
+            <div class="context">Threshold: 53% {{ '✓' if (run.confidence|default(0)) > 0.53 else '✗' }}</div>
         </div>
         <div class="pred-item">
             <div class="label">Sentiment</div>
             <div class="value {% if (run.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (run.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
                 {{ "%+.2f"|format(run.sentiment_score|default(0)) }}
             </div>
+            <div class="context">
+                {% if (run.sentiment_score|default(0)) > 0.3 %}Bullish
+                {% elif (run.sentiment_score|default(0)) < -0.3 %}Bearish
+                {% else %}Neutral{% endif %} (Min: -0.5) {{ '✓' if (run.sentiment_score|default(0)) >= -0.5 else '✗' }}
+            </div>
         </div>
         <div class="pred-item">
             <div class="label">Action</div>
-            <div class="value">{{ run.action|default('N/A') }}</div>
+            <div class="value">{{ run.action|default('N/A')|replace('_', ' ') }}</div>
         </div>
         <div class="pred-item">
             <div class="label">BTC Price</div>
@@ -267,19 +388,18 @@
         {% if run.position_qty %}
         <div class="pred-item">
             <div class="label">Position Size</div>
-            <div class="value">{{ "%.4f"|format(run.position_qty) }} BTC ({{ "%.1f"|format(run.leverage|default(0)) }}x)</div>
+            <div class="value">{{ "%.4f"|format(run.position_qty) }} BTC</div>
+            <div class="context">Leverage: {{ "%.1f"|format(run.leverage|default(0)) }}x</div>
         </div>
-        {% endif %}
-        {% if run.stop_loss %}
         <div class="pred-item">
             <div class="label">Stop Loss</div>
             <div class="value sell-signal">${{ "%.2f"|format(run.stop_loss) }}</div>
+            <div class="context">Risk: {{ "%.2f"|format(run.btc_close - run.stop_loss) }}</div>
         </div>
-        {% endif %}
-        {% if run.take_profit %}
         <div class="pred-item">
             <div class="label">Take Profit</div>
             <div class="value buy-signal">${{ "%.2f"|format(run.take_profit) }}</div>
+            <div class="context">Reward: {{ "%.2f"|format(run.take_profit - run.btc_close) }}</div>
         </div>
         {% endif %}
     </div>
@@ -288,7 +408,7 @@
 <!-- Headlines -->
 {% if run.headlines %}
 <div class="card">
-    <h2>Latest News Headlines</h2>
+    <h2>News Headlines (Sentiment: {{ "%+.2f"|format(run.sentiment_score|default(0)) }})</h2>
     <ul class="headlines">
         {% for h in run.headlines %}
         <li>{{ h }}</li>
@@ -303,19 +423,87 @@
     <div id="chart-container"></div>
 </div>
 
-<!-- Feature Values -->
+<!-- Feature Values with Context -->
 {% if run.indicators %}
 <div class="card">
-    <h2>Current Feature Values</h2>
+    <h2>Current Technical Indicators</h2>
     <div class="features-grid">
-        <div class="feature-item"><span class="label">RSI (14):</span> <span class="value">{{ "%.1f"|format(run.indicators.rsi) }}</span></div>
-        <div class="feature-item"><span class="label">MACD:</span> <span class="value">{{ "%.2f"|format(run.indicators.macd) }}</span></div>
-        <div class="feature-item"><span class="label">MACD Signal:</span> <span class="value">{{ "%.2f"|format(run.indicators.macd_signal) }}</span></div>
-        <div class="feature-item"><span class="label">EMA 20:</span> <span class="value">${{ "%.0f"|format(run.indicators.ema20) }}</span></div>
-        <div class="feature-item"><span class="label">BB Width:</span> <span class="value">{{ "%.4f"|format(run.indicators.bb_width) }}</span></div>
-        <div class="feature-item"><span class="label">ATR (14):</span> <span class="value">${{ "%.2f"|format(run.indicators.atr) }}</span></div>
-        <div class="feature-item"><span class="label">BB Upper:</span> <span class="value">${{ "%.0f"|format(run.indicators.bb_high) }}</span></div>
-        <div class="feature-item"><span class="label">BB Lower:</span> <span class="value">${{ "%.0f"|format(run.indicators.bb_low) }}</span></div>
+        <div class="feature-item">
+            <span class="label">RSI (14):</span><br>
+            <span class="value">{{ "%.1f"|format(run.indicators.rsi) }}</span>
+            <span class="context">
+                {% if run.indicators.rsi > 70 %}Overbought{% elif run.indicators.rsi < 30 %}Oversold{% else %}Neutral{% endif %}
+            </span>
+        </div>
+        <div class="feature-item">
+            <span class="label">MACD:</span><br>
+            <span class="value">{{ "%.2f"|format(run.indicators.macd) }}</span>
+            <span class="context">Signal: {{ "%.2f"|format(run.indicators.macd_signal) }}</span>
+        </div>
+        <div class="feature-item">
+            <span class="label">EMA 20:</span><br>
+            <span class="value">${{ "%.0f"|format(run.indicators.ema20) }}</span>
+            <span class="context">{{ 'Above' if run.btc_close >= run.indicators.ema20 else 'Below' }} current</span>
+        </div>
+        <div class="feature-item">
+            <span class="label">BB Width:</span><br>
+            <span class="value">{{ "%.4f"|format(run.indicators.bb_width) }}</span>
+            <span class="context">Volatility measure</span>
+        </div>
+        <div class="feature-item">
+            <span class="label">ATR (14):</span><br>
+            <span class="value">${{ "%.2f"|format(run.indicators.atr) }}</span>
+            <span class="context">Used for position size</span>
+        </div>
+        <div class="feature-item">
+            <span class="label">BB Upper:</span><br>
+            <span class="value">${{ "%.0f"|format(run.indicators.bb_high) }}</span>
+            <span class="context">Resistance</span>
+        </div>
+        <div class="feature-item">
+            <span class="label">BB Lower:</span><br>
+            <span class="value">${{ "%.0f"|format(run.indicators.bb_low) }}</span>
+            <span class="context">Support</span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent Closed Trades -->
+{% if closed_trades|length > 0 %}
+<div class="card">
+    <h2>Recent Closed Trades (Last 20)</h2>
+    <div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Entry Time</th>
+                <th>Entry Price</th>
+                <th>Exit Price</th>
+                <th>Exit Reason</th>
+                <th>P&L ($)</th>
+                <th>P&L (%)</th>
+                <th>Duration</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for trade in closed_trades %}
+            <tr>
+                <td>{{ trade.entry_time[:16] if trade.entry_time else 'N/A' }}</td>
+                <td>${{ "%.2f"|format(trade.entry_price|default(0)) }}</td>
+                <td>${{ "%.2f"|format(trade.exit_price|default(0)) }}</td>
+                <td>{{ trade.exit_reason if trade.exit_reason else '—' }}</td>
+                <td class="{% if (trade.pnl_dollars|default(0)) >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                    {{ "%+.2f"|format(trade.pnl_dollars|default(0)) }}
+                </td>
+                <td class="{% if (trade.pnl_percent|default(0)) >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                    {{ "%+.2f"|format(trade.pnl_percent|default(0)) }}%
+                </td>
+                <td>{{ "%.1f"|format(trade.duration_hours|default(0)) }}h</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     </div>
 </div>
 {% endif %}
@@ -323,7 +511,7 @@
 <!-- Last 10 Runs -->
 {% if runs|length > 0 %}
 <div class="card">
-    <h2>Last {{ runs|length }} Runs</h2>
+    <h2>Last {{ runs|length }} Hourly Runs</h2>
     <div style="overflow-x: auto;">
     <table>
         <thead>
@@ -339,7 +527,7 @@
         <tbody>
             {% for r in runs|reverse %}
             <tr>
-                <td>{{ r.timestamp[:19] if r.timestamp else 'N/A' }}</td>
+                <td>{{ r.timestamp[:16] if r.timestamp else 'N/A' }}</td>
                 <td class="{{ 'buy-signal' if r.prediction == 1 else 'sell-signal' }}">
                     {{ r.prediction_label|default('N/A') }}
                 </td>
@@ -347,7 +535,7 @@
                 <td class="{% if (r.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (r.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
                     {{ "%+.2f"|format(r.sentiment_score|default(0)) }}
                 </td>
-                <td>{{ r.action|default('N/A') }}</td>
+                <td>{{ r.action|default('N/A')|replace('_', ' ') }}</td>
                 <td>${{ "%.2f"|format(r.btc_close|default(0)) }}</td>
             </tr>
             {% endfor %}
@@ -368,7 +556,7 @@
 {% endif %}
 
 <footer>
-    Auto-refreshes every 5 minutes &middot; Paper Trading &middot; ML Trading Bot
+    Auto-refreshes every 5 minutes &middot; Paper Trading &middot; ML Trading Bot &middot; SQLite Persistent Storage
 </footer>
 
 </body>
