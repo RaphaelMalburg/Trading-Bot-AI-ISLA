@@ -114,6 +114,10 @@ def prepare_features(df_btc, df_eth):
 
 
 def calculate_position_size(capital, current_price, atr):
+    # If we don't even have enough buying power for Alpaca's crypto minimum ($10 + buffer), abort.
+    if capital < 11.0:
+        return 0, 0
+
     dist_stop = atr * SL_ATR_MULT
     stop_pct = dist_stop / current_price
 
@@ -139,9 +143,18 @@ def calculate_position_size(capital, current_price, atr):
     max_pos = capital * max_leverage * 0.90
     min_pos = capital * 0.05
     final_pos_value = min(max(position_value, min_pos), max_pos)
+    
+    # Alpaca minimum order for crypto is usually $10 or $1 depending on the asset. We use $11 to be safe.
+    final_pos_value = max(final_pos_value, 11.0)
 
     qty = final_pos_value / current_price
-    leverage = final_pos_value / capital
+    qty = round(qty, 4)
+    
+    # Ensure minimum qty after rounding still meets Alpaca's notional requirements
+    if qty * current_price < 10.5:
+        qty = round(11.0 / current_price, 4)
+
+    leverage = (qty * current_price) / capital if capital > 0 else 0
 
     return qty, leverage
 
@@ -316,9 +329,10 @@ def trade_logic_multi():
             result["leverage"] = float(leverage)
 
             if qty <= 0:
-                result["action"] = "INVALID_QTY"
+                result["action"] = "INSUFFICIENT_FUNDS"
+                result["error"] = "Not enough buying power to meet minimum order size ($10)."
                 result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
-                print("Quantidade calculada e zero ou negativa. Abortando.")
+                print("Buying power insufficient for minimum crypto order. Abortando.")
                 return result
 
             stop_price = last_close_btc - (current_atr * SL_ATR_MULT)

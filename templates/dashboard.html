@@ -352,6 +352,10 @@
     <div class="alert-box alert-warning">
         ⚠ Order Rejected: {{ run.error|replace('insufficient balance for USD (requested: ', 'Need $')|replace(', available: ', ' but only have $')|replace(')', '') }}
     </div>
+    {% elif run.action == 'INSUFFICIENT_FUNDS' and run.error %}
+    <div class="alert-box alert-warning">
+        ⚠ Insufficient Funds: {{ run.error }}
+    </div>
     {% elif run.error %}
     <div class="alert-box">
         ❌ Error: {{ run.error }}
