@@ -16,11 +16,11 @@ load_dotenv()
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from src.trading_bot_multi import trade_logic_multi
 from src.run_store import add_run, get_latest, get_last_n
-from src.charts import build_candlestick_chart
-from src.database import init_db, store_run, get_recent_runs, get_closed_trades, get_statistics, get_todays_statistics
+from src.charts import build_candlestick_chart, build_equity_chart
+from src.database import init_db, store_run, get_recent_runs, get_closed_trades, get_statistics, get_todays_statistics, get_equity_history
 from alpaca.trading.client import TradingClient
 
 # Initialize Alpaca Client
@@ -108,9 +108,14 @@ def dashboard():
     closed_trades = get_closed_trades(20)
     stats_overall = get_statistics()
     stats_today = get_todays_statistics()
+    
+    # Build Equity Curve Chart
+    equity_history = get_equity_history()
+    equity_chart_json = build_equity_chart(equity_history)
 
     return render_template("dashboard.html",
                          run=run, runs=runs, chart_json=chart_json,
+                         equity_chart_json=equity_chart_json,
                          closed_trades=closed_trades,
                          stats_overall=stats_overall,
                          stats_today=stats_today,
@@ -147,6 +152,53 @@ def api_runs():
         safe_runs.append({k: v for k, v in r.items() if k not in ("ohlcv_data", "chart_indicators")})
     return jsonify(safe_runs)
 
+
+@app.route("/api/trades")
+def api_trades():
+    offset = int(request.args.get("offset", 0))
+    limit = int(request.args.get("limit", 20))
+    trades = get_closed_trades(limit, offset)
+    return jsonify(trades)
+
+@app.route("/api/live_stats")
+def api_live_stats():
+    if not trading_client:
+        return jsonify({"error": "No trading client configured"}), 500
+
+    try:
+        account = trading_client.get_account()
+        equity = float(account.equity)
+        buying_power = float(account.buying_power)
+        last_equity = float(account.last_equity)
+        pnl = equity - last_equity
+        pnl_pct = (pnl / last_equity) * 100 if last_equity > 0 else 0
+
+        # Get open positions
+        positions = trading_client.get_all_positions()
+        active_positions = []
+        for p in positions:
+            side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
+            active_positions.append({
+                "symbol": p.symbol,
+                "qty": float(p.qty),
+                "side": side_str,
+                "market_value": float(p.market_value),
+                "avg_entry_price": float(p.avg_entry_price),
+                "current_price": float(p.current_price),
+                "unrealized_pl": float(p.unrealized_pl),
+                "unrealized_plpc": float(p.unrealized_plpc) * 100
+            })
+
+        return jsonify({
+            "equity": equity,
+            "buying_power": buying_power,
+            "pnl_today": pnl,
+            "pnl_today_pct": pnl_pct,
+            "active_positions": active_positions
+        })
+    except Exception as e:
+        logger.error(f"Live stats API error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 def bot_loop():
     """Background trading bot loop — runs hourly, same as main.py."""

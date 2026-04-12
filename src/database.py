@@ -201,7 +201,7 @@ def get_open_trades() -> list[dict]:
             return [dict(row) for row in cursor.fetchall()]
 
 
-def get_closed_trades(limit: int = 50) -> list[dict]:
+def get_closed_trades(limit: int = 50, offset: int = 0) -> list[dict]:
     """Get closed trades with P&L."""
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
@@ -209,9 +209,35 @@ def get_closed_trades(limit: int = 50) -> list[dict]:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM trades WHERE exit_price IS NOT NULL
-                ORDER BY exit_time DESC LIMIT ?
-            """, (limit,))
+                ORDER BY exit_time DESC LIMIT ? OFFSET ?
+            """, (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
+
+def get_equity_history() -> list[dict]:
+    """Calculate the historical equity curve from closed trades."""
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # Because the initial capital isn't hard stored as an initial event,
+            # we'll approximate an equity curve from the sum of PnL over time.
+            cursor.execute("""
+                SELECT exit_time as timestamp, pnl_dollars 
+                FROM trades 
+                WHERE exit_price IS NOT NULL
+                ORDER BY exit_time ASC
+            """)
+            trades = cursor.fetchall()
+            
+            history = []
+            cumulative = 0
+            for row in trades:
+                cumulative += row['pnl_dollars']
+                history.append({
+                    "timestamp": row['timestamp'],
+                    "equity": cumulative
+                })
+            return history
 
 
 def get_statistics() -> dict:
