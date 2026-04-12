@@ -237,7 +237,7 @@ def get_statistics() -> dict:
             won_trades = cursor.fetchone()[0]
 
             # Lost trades
-            cursor.execute("SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars < 0")
+            cursor.execute("SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars <= 0")
             lost_trades = cursor.fetchone()[0]
 
             # Total P&L
@@ -251,18 +251,15 @@ def get_statistics() -> dict:
             cursor.execute("SELECT COALESCE(AVG(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars < 0")
             avg_loss = cursor.fetchone()[0]
 
-            # Best/worst trade
             cursor.execute("SELECT COALESCE(MAX(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL")
             best_trade = cursor.fetchone()[0]
 
             cursor.execute("SELECT COALESCE(MIN(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL")
             worst_trade = cursor.fetchone()[0]
-
-            # Average duration
+            
             cursor.execute("SELECT COALESCE(AVG(duration_hours), 0) FROM trades WHERE exit_price IS NOT NULL")
             avg_duration = cursor.fetchone()[0]
 
-            # Win rate
             win_rate = (won_trades / closed_trades * 100) if closed_trades > 0 else 0
 
             return {
@@ -277,8 +274,102 @@ def get_statistics() -> dict:
                 "avg_loss": abs(avg_loss),
                 "best_trade": best_trade,
                 "worst_trade": worst_trade,
-                "avg_duration_hours": avg_duration,
+                "avg_duration_hours": avg_duration
             }
+
+
+def sync_trades_from_alpaca(trading_client):
+    """
+    Fetch all bracket orders from Alpaca and sync their status into the trades table.
+    Matches the parent BUY order to entry and child SELL orders to exit.
+    """
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus, OrderStatus
+
+    req = GetOrdersRequest(status=QueryOrderStatus.ALL, nested=True, limit=100)
+    try:
+        orders = trading_client.get_orders(req)
+    except Exception as e:
+        print(f"Error fetching orders for sync: {e}")
+        return
+
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            for o in orders:
+                # We only care about the parent orders (e.g. bracket BUYs)
+                # or single manual orders. If it's a bracket order, it has legs.
+                if o.side.name != "BUY":
+                    continue
+                
+                # We only store filled entries
+                if o.status not in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED) or not o.filled_at:
+                    continue
+
+                order_id = str(o.id)
+                entry_price = float(o.filled_avg_price) if o.filled_avg_price else 0.0
+                entry_time = o.filled_at.isoformat()
+                qty = float(o.filled_qty) if o.filled_qty else float(o.qty)
+
+                # Check if it already exists
+                cursor.execute("SELECT id, exit_price FROM trades WHERE order_id = ?", (order_id,))
+                row = cursor.fetchone()
+                
+                if not row:
+                    # Insert new trade
+                    cursor.execute("""
+                        INSERT INTO trades (
+                            run_id, order_id, entry_price, entry_time, qty
+                        ) VALUES (NULL, ?, ?, ?, ?)
+                    """, (order_id, entry_price, entry_time, qty))
+                    conn.commit()
+                
+                # Check exit conditions (legs)
+                exit_price = None
+                exit_time = None
+                exit_reason = None
+                
+                if o.legs:
+                    for leg in o.legs:
+                        if leg.status == OrderStatus.FILLED and leg.filled_at:
+                            exit_price = float(leg.filled_avg_price) if leg.filled_avg_price else 0.0
+                            exit_time = leg.filled_at.isoformat()
+                            # Determine reason based on order type or limit vs stop
+                            if leg.order_type.name == "LIMIT":
+                                exit_reason = "Take Profit"
+                            elif leg.order_type.name == "STOP":
+                                exit_reason = "Stop Loss"
+                            else:
+                                exit_reason = "Closed"
+                            break
+
+                if exit_price is not None:
+                    # Calculate P&L
+                    pnl_dollars = (exit_price - entry_price) * qty
+                    pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+
+                    # Calculate duration
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+                        exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                        duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
+                    except:
+                        duration_hours = 0
+
+                    cursor.execute("""
+                        UPDATE trades SET
+                            exit_price = ?, exit_time = ?, exit_reason = ?,
+                            pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
+                        WHERE order_id = ? AND exit_price IS NULL
+                    """, (
+                        exit_price, exit_time, exit_reason,
+                        pnl_dollars, pnl_percent, duration_hours,
+                        order_id
+                    ))
+                    conn.commit()
+
+
 
 
 def get_todays_statistics() -> dict:

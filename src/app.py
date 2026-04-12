@@ -21,6 +21,12 @@ from src.trading_bot_multi import trade_logic_multi
 from src.run_store import add_run, get_latest, get_last_n
 from src.charts import build_candlestick_chart
 from src.database import init_db, store_run, get_recent_runs, get_closed_trades, get_statistics, get_todays_statistics
+from alpaca.trading.client import TradingClient
+
+# Initialize Alpaca Client
+API_KEY = os.getenv("ALPACA_API_KEY")
+SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True) if API_KEY and SECRET_KEY else None
 
 # Logging
 logging.basicConfig(
@@ -42,7 +48,41 @@ def dashboard():
     runs = get_last_n(10)
     chart_json = build_candlestick_chart(run) if run else "{}"
 
+    # Get live account data and active positions if possible
+    active_positions = []
+    if trading_client and run:
+        try:
+            account = trading_client.get_account()
+            # Override run metrics with live metrics
+            run["equity"] = float(account.equity)
+            run["buying_power"] = float(account.buying_power)
+            last_equity = float(account.last_equity)
+            pnl = run["equity"] - last_equity
+            run["pnl_today"] = pnl
+            run["pnl_today_pct"] = (pnl / last_equity) * 100 if last_equity > 0 else 0
+
+            # Get open positions
+            positions = trading_client.get_all_positions()
+            for p in positions:
+                side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
+                active_positions.append({
+                    "symbol": p.symbol,
+                    "qty": float(p.qty),
+                    "side": side_str,
+                    "market_value": float(p.market_value),
+                    "avg_entry_price": float(p.avg_entry_price),
+                    "current_price": float(p.current_price),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "unrealized_plpc": float(p.unrealized_plpc) * 100
+                })
+        except Exception as e:
+            logger.error(f"Failed to fetch live account data: {e}")
+
     # Get trade data
+    if trading_client:
+        from src.database import sync_trades_from_alpaca
+        sync_trades_from_alpaca(trading_client)
+    
     closed_trades = get_closed_trades(20)
     stats_overall = get_statistics()
     stats_today = get_todays_statistics()
@@ -51,13 +91,26 @@ def dashboard():
                          run=run, runs=runs, chart_json=chart_json,
                          closed_trades=closed_trades,
                          stats_overall=stats_overall,
-                         stats_today=stats_today)
+                         stats_today=stats_today,
+                         active_positions=active_positions)
 
 
 @app.route("/api/latest")
 def api_latest():
     run = get_latest()
     if run:
+        if trading_client:
+            try:
+                account = trading_client.get_account()
+                run["equity"] = float(account.equity)
+                run["buying_power"] = float(account.buying_power)
+                last_equity = float(account.last_equity)
+                pnl = run["equity"] - last_equity
+                run["pnl_today"] = pnl
+                run["pnl_today_pct"] = (pnl / last_equity) * 100 if last_equity > 0 else 0
+            except Exception as e:
+                logger.error(f"Failed to fetch live account data for API: {e}")
+
         # Strip large chart data from API response
         safe = {k: v for k, v in run.items() if k not in ("ohlcv_data", "chart_indicators")}
         return jsonify(safe)

@@ -318,12 +318,18 @@
             </span>
         </div>
         <div class="summary-row">
-            <span class="summary-label">Best Trade:</span>
-            <span class="summary-value positive">{{ "%+.2f"|format(stats_overall.best_trade|default(0)) }}</span>
+            <span class="summary-label">Avg Win / Loss:</span>
+            <span class="summary-value">
+                <span class="positive">+{{ "%.2f"|format(stats_overall.avg_win|default(0)) }}</span> /
+                <span class="negative">-{{ "%.2f"|format(stats_overall.avg_loss|default(0)) }}</span>
+            </span>
         </div>
         <div class="summary-row">
-            <span class="summary-label">Worst Trade:</span>
-            <span class="summary-value negative">{{ "%+.2f"|format(stats_overall.worst_trade|default(0)) }}</span>
+            <span class="summary-label">Best / Worst:</span>
+            <span class="summary-value">
+                <span class="positive">+{{ "%.2f"|format(stats_overall.best_trade|default(0)) }}</span> /
+                <span class="negative">{{ "%.2f"|format(stats_overall.worst_trade|default(0)) }}</span>
+            </span>
         </div>
     </div>
 </div>
@@ -465,6 +471,47 @@
             <span class="value">${{ "%.0f"|format(run.indicators.bb_low) }}</span>
             <span class="context">Support</span>
         </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Active Positions -->
+{% if active_positions and active_positions|length > 0 %}
+<div class="card">
+    <h2>Active Positions</h2>
+    <div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Avg Entry</th>
+                <th>Current Price</th>
+                <th>Market Value</th>
+                <th>Unrealized P&L ($)</th>
+                <th>Unrealized P&L (%)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pos in active_positions %}
+            <tr>
+                <td><strong>{{ pos.symbol }}</strong></td>
+                <td class="{{ 'buy-signal' if pos.side == 'long' else 'sell-signal' }}">{{ pos.side|upper }}</td>
+                <td>{{ "%.4f"|format(pos.qty) }}</td>
+                <td>${{ "%.2f"|format(pos.avg_entry_price) }}</td>
+                <td>${{ "%.2f"|format(pos.current_price) }}</td>
+                <td>${{ "%.2f"|format(pos.market_value) }}</td>
+                <td class="{% if pos.unrealized_pl >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                    {{ "%+.2f"|format(pos.unrealized_pl) }}
+                </td>
+                <td class="{% if pos.unrealized_plpc >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                    {{ "%+.2f"|format(pos.unrealized_plpc) }}%
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     </div>
 </div>
 {% endif %}
