@@ -135,8 +135,9 @@ def calculate_position_size(capital, current_price, atr):
     else:
         max_leverage = 5.0
 
-    max_pos = capital * max_leverage
-    min_pos = capital * 0.05  # Reduced minimum to 5% (vs 10%)
+    # Reserve 5% buffer for Alpaca bracket order overhead (SL/TP legs)
+    max_pos = capital * max_leverage * 0.90
+    min_pos = capital * 0.05
     final_pos_value = min(max(position_value, min_pos), max_pos)
 
     qty = final_pos_value / current_price
@@ -310,7 +311,7 @@ def trade_logic_multi():
                 print("Ja existe uma posicao em BTC/USD. Mantendo.")
                 return result
 
-            qty, leverage = calculate_position_size(equity, last_close_btc, current_atr)
+            qty, leverage = calculate_position_size(capital, last_close_btc, current_atr)
             result["position_qty"] = float(qty)
             result["leverage"] = float(leverage)
 
