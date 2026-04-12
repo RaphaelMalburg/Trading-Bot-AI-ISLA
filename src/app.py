@@ -46,7 +46,6 @@ app = Flask(__name__, template_folder=os.path.join(
 def dashboard():
     run = get_latest()
     runs = get_last_n(10)
-    chart_json = build_candlestick_chart(run) if run else "{}"
 
     # Get live account data and active positions if possible
     active_positions = []
@@ -63,8 +62,26 @@ def dashboard():
 
             # Get open positions
             positions = trading_client.get_all_positions()
+            
+            # Get open orders to find SL and TP levels
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            open_orders_req = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+            open_orders = trading_client.get_orders(open_orders_req)
+            
             for p in positions:
                 side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
+                
+                # Find associated SL and TP orders for this symbol
+                sl_price = None
+                tp_price = None
+                for o in open_orders:
+                    if o.symbol == p.symbol:
+                        if o.order_type.name == "STOP" and o.stop_price:
+                            sl_price = float(o.stop_price)
+                        elif o.order_type.name == "LIMIT" and o.limit_price:
+                            tp_price = float(o.limit_price)
+                            
                 active_positions.append({
                     "symbol": p.symbol,
                     "qty": float(p.qty),
@@ -73,10 +90,15 @@ def dashboard():
                     "avg_entry_price": float(p.avg_entry_price),
                     "current_price": float(p.current_price),
                     "unrealized_pl": float(p.unrealized_pl),
-                    "unrealized_plpc": float(p.unrealized_plpc) * 100
+                    "unrealized_plpc": float(p.unrealized_plpc) * 100,
+                    "sl_price": sl_price,
+                    "tp_price": tp_price
                 })
         except Exception as e:
             logger.error(f"Failed to fetch live account data: {e}")
+
+    # Build chart after getting active_positions
+    chart_json = build_candlestick_chart(run, active_positions) if run else "{}"
 
     # Get trade data
     if trading_client:
