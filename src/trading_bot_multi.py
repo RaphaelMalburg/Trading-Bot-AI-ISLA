@@ -351,8 +351,9 @@ def trade_logic_multi():
                 qty=qty,
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.GTC,
-                stop_loss={'stop_price': stop_price},
-                take_profit={'limit_price': take_profit_price}
+                order_class='bracket',
+                stop_loss=StopLossRequest(stop_price=stop_price),
+                take_profit=TakeProfitRequest(limit_price=take_profit_price)
             )
 
             order = trading_client.submit_order(req)
