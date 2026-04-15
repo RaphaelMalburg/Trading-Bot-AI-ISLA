@@ -346,21 +346,48 @@ def trade_logic_multi():
             print(f"   Take Profit: {take_profit_price:.2f}")
             print(f"   Tamanho: {qty:.4f} BTC (Lev: {leverage:.2f}x)")
 
+            # Place main BUY order
             req = MarketOrderRequest(
                 symbol=SYMBOL_BTC,
                 qty=qty,
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.GTC,
-                order_class='bracket',
-                stop_loss=StopLossRequest(stop_price=stop_price),
-                take_profit=TakeProfitRequest(limit_price=take_profit_price)
             )
 
             order = trading_client.submit_order(req)
             result["action"] = "BUY_ORDER_SENT"
             result["order_id"] = str(order.id)
-            result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
             print(f"Ordem enviada com sucesso! ID: {order.id}")
+
+            # Place separate STOP LOSS order
+            try:
+                sl_req = StopOrderRequest(
+                    symbol=SYMBOL_BTC,
+                    qty=qty,
+                    side=OrderSide.SELL,
+                    stop_price=stop_price,
+                    time_in_force=TimeInForce.GTC,
+                )
+                sl_order = trading_client.submit_order(sl_req)
+                print(f"Stop Loss criado! ID: {sl_order.id} @ ${stop_price:.2f}")
+            except Exception as e:
+                print(f"Erro ao criar Stop Loss: {e}")
+
+            # Place separate TAKE PROFIT order
+            try:
+                tp_req = LimitOrderRequest(
+                    symbol=SYMBOL_BTC,
+                    qty=qty,
+                    side=OrderSide.SELL,
+                    limit_price=take_profit_price,
+                    time_in_force=TimeInForce.GTC,
+                )
+                tp_order = trading_client.submit_order(tp_req)
+                print(f"Take Profit criado! ID: {tp_order.id} @ ${take_profit_price:.2f}")
+            except Exception as e:
+                print(f"Erro ao criar Take Profit: {e}")
+
+            result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
 
         except Exception as e:
             result["action"] = "ORDER_ERROR"
