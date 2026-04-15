@@ -521,6 +521,8 @@
                 <th>Qty</th>
                 <th>Avg Entry</th>
                 <th>Current Price</th>
+                <th class="hide-mobile">Stop Loss</th>
+                <th class="hide-mobile">Take Profit</th>
                 <th class="hide-mobile">Market Value</th>
                 <th>Unrealized P&L ($)</th>
                 <th class="hide-mobile">Unrealized P&L (%)</th>
@@ -534,6 +536,12 @@
                 <td>{{ "%.4f"|format(pos.qty) }}</td>
                 <td>${{ "%.2f"|format(pos.avg_entry_price) }}</td>
                 <td>${{ "%.2f"|format(pos.current_price) }}</td>
+                <td class="hide-mobile {% if pos.sl_price %}sell-signal{% endif %}">
+                    {% if pos.sl_price %}<strong>${{ "%.2f"|format(pos.sl_price) }}</strong>{% else %}<span style="color:#999">--</span>{% endif %}
+                </td>
+                <td class="hide-mobile {% if pos.tp_price %}buy-signal{% endif %}">
+                    {% if pos.tp_price %}<strong>${{ "%.2f"|format(pos.tp_price) }}</strong>{% else %}<span style="color:#999">--</span>{% endif %}
+                </td>
                 <td class="hide-mobile">${{ "%.2f"|format(pos.market_value) }}</td>
                 <td class="{% if pos.unrealized_pl >= 0 %}trade-win{% else %}trade-loss{% endif %}">
                     {{ "%+.2f"|format(pos.unrealized_pl) }}
