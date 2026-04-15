@@ -359,33 +359,25 @@ def trade_logic_multi():
             result["order_id"] = str(order.id)
             print(f"Ordem enviada com sucesso! ID: {order.id}")
 
-            # Place separate STOP LOSS order
+            # Place OCO (One-Cancels-Other) order for SL/TP
+            # This ensures that when one leg fills, the other is automatically cancelled
             try:
-                sl_req = StopOrderRequest(
+                oco_req = StopOrderRequest(
                     symbol=SYMBOL_BTC,
                     qty=qty,
                     side=OrderSide.SELL,
                     stop_price=stop_price,
                     time_in_force=TimeInForce.GTC,
+                    order_class='oco',
+                    take_profit=TakeProfitRequest(limit_price=take_profit_price),
                 )
-                sl_order = trading_client.submit_order(sl_req)
-                print(f"Stop Loss criado! ID: {sl_order.id} @ ${stop_price:.2f}")
+                oco_order = trading_client.submit_order(oco_req)
+                print(f"OCO Order criado! ID: {oco_order.id}")
+                print(f"  Stop Loss: ${stop_price:.2f}")
+                print(f"  Take Profit: ${take_profit_price:.2f}")
             except Exception as e:
-                print(f"Erro ao criar Stop Loss: {e}")
-
-            # Place separate TAKE PROFIT order
-            try:
-                tp_req = LimitOrderRequest(
-                    symbol=SYMBOL_BTC,
-                    qty=qty,
-                    side=OrderSide.SELL,
-                    limit_price=take_profit_price,
-                    time_in_force=TimeInForce.GTC,
-                )
-                tp_order = trading_client.submit_order(tp_req)
-                print(f"Take Profit criado! ID: {tp_order.id} @ ${take_profit_price:.2f}")
-            except Exception as e:
-                print(f"Erro ao criar Take Profit: {e}")
+                print(f"Erro ao criar OCO order: {e}")
+                result["error"] = f"OCO order failed: {e}"
 
             result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
 
