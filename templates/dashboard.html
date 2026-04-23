@@ -38,6 +38,13 @@
             margin-left: 8px;
         }
 
+        .badge-live { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; border: 1px solid #3fb950 !important; animation: blink 2s infinite; }
+        @keyframes blink { 
+            0% { opacity: 1; } 
+            50% { opacity: 0.4; } 
+            100% { opacity: 1; } 
+        }
+
         /* Top stats bar */
         .stats-grid {
             display: grid;
@@ -268,6 +275,7 @@
 <header>
     <h1>ML Trading Bot Dashboard</h1>
     <div class="badges">
+        <span class="badge-live" id="live-indicator">● LIVE</span>
         <span class="badge-h1">H1</span>
         <span class="badge-paper">PAPER TRADING</span>
     </div>
@@ -725,7 +733,7 @@
         }
     }
 
-    // Real-Time Stats Polling
+    // Real-Time Stats Polling (every 5s)
     setInterval(async () => {
         try {
             const res = await fetch('/api/live_stats');
@@ -767,7 +775,7 @@
                     tr.innerHTML = `
                         <td><strong>${pos.symbol}</strong></td>
                         <td class="${sideClass}">${pos.side.toUpperCase()}</td>
-                        <td>${pos.qty.toFixed(4)}</td>
+                        <td>${pos.qty.toFixed(6)}</td>
                         <td>$${pos.avg_entry_price.toFixed(2)}</td>
                         <td>$${pos.current_price.toFixed(2)}</td>
                         <td class="hide-mobile ${pos.sl_price ? 'sell-signal' : ''}">${slCell}</td>
@@ -784,7 +792,13 @@
         } catch (e) {
             console.error('Error fetching live stats:', e);
         }
-    }, 10000);
+    }, 5000);
+
+    // Full Page Refresh for Chart/Prediction (every 5 min)
+    // This ensures new hourly candles and model predictions appear without manual refresh
+    setInterval(() => {
+        window.location.reload();
+    }, 300000);
 </script>
 
 {% endif %}
