@@ -12,7 +12,7 @@ import pytz
 sys.path.append(os.getcwd())
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, StopOrderRequest, LimitOrderRequest, GetOrdersRequest
+from alpaca.trading.requests import MarketOrderRequest, StopLimitOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus, QueryOrderStatus
 from alpaca.data.historical import CryptoHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest
@@ -33,6 +33,7 @@ SYMBOL_ETH = "ETH/USD"
 TIMEFRAME = TimeFrame.Hour
 SL_ATR_MULT = 1.0
 TP_ATR_MULT = 2.0
+SL_LIMIT_SLIPPAGE = 0.005  # 0.5% slack below stop_price for the stop-limit fill price
 MAX_RISK_PER_TRADE = 0.05
 CONFIDENCE_THRESHOLD = 0.55
 SENTIMENT_FLOOR = -0.5
@@ -161,15 +162,17 @@ def wait_for_fill(trading_client, order_id, attempts=FILL_POLL_ATTEMPTS, interva
 
 
 def cancel_open_orders_for_symbol(trading_client, symbol):
-    """Cancel any resting (non-filled) orders on a symbol. Returns count cancelled."""
+    """Cancel any resting (non-filled) orders on a symbol. Returns count cancelled.
+    Symbol matching is slash-insensitive (BTC/USD == BTCUSD)."""
     try:
         open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
     except Exception as e:
         print(f"Could not list open orders: {e}")
         return 0
+    target = symbol.replace("/", "").upper()
     cancelled = 0
     for o in open_orders:
-        if o.symbol != symbol:
+        if o.symbol.replace("/", "").upper() != target:
             continue
         try:
             trading_client.cancel_order_by_id(o.id)
@@ -336,13 +339,32 @@ def trade_logic_multi():
         print("SINAL DE COMPRA VALIDADO!")
         try:
             positions = trading_client.get_all_positions()
-            has_btc_position = any(p.symbol == "BTC/USD" for p in positions)
+            btc_pos = next((p for p in positions if p.symbol == "BTC/USD"), None)
 
-            if has_btc_position:
+            if btc_pos:
+                # Soft take-profit: SL is the only resting SELL we can have on crypto,
+                # so if price has reached our TP target relative to entry, close manually.
+                entry = float(btc_pos.avg_entry_price)
+                tp_target = entry + (current_atr * TP_ATR_MULT)
+                if last_close_btc >= tp_target:
+                    cancel_open_orders_for_symbol(trading_client, "BTC/USD")
+                    trading_client.close_position("BTC/USD")
+                    result["action"] = "TAKE_PROFIT_HIT"
+                    result["take_profit"] = float(tp_target)
+                    result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
+                    print(f"Take-profit alcancado (${last_close_btc:.2f} >= ${tp_target:.2f}). Fechando.")
+                    return result
+
                 result["action"] = "ALREADY_POSITIONED"
                 result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-                print("Ja existe uma posicao em BTC/USD. Mantendo.")
+                print("Ja existe uma posicao em BTC/USD. Mantendo (SL ativo, TP monitorado).")
                 return result
+
+            # No position but maybe stale SELL orders from a manually closed trade are
+            # holding qty/buying_power. Clear them so the BUY does not fail.
+            orphan = cancel_open_orders_for_symbol(trading_client, "BTC/USD")
+            if orphan:
+                print(f"Limpas {orphan} ordens SELL orfas antes de comprar.")
 
             qty, leverage = calculate_position_size(capital, last_close_btc, current_atr)
             result["position_qty"] = float(qty)
@@ -384,41 +406,32 @@ def trade_logic_multi():
             result["take_profit"] = float(take_profit_price)
             result["action"] = "BUY_ORDER_SENT"
 
-            print(f"BUY preenchido @ ${entry_price:.2f} ({filled_qty:.4f} BTC). Configurando SL/TP...")
+            print(f"BUY preenchido @ ${entry_price:.2f} ({filled_qty:.4f} BTC). Configurando SL...")
 
-            sl_error = tp_error = None
+            # Alpaca crypto only allows ONE resting SELL order against the position
+            # qty (no OCO/bracket). We pick the SL because downside protection is
+            # the priority. Take-profit is enforced softly: each hourly run checks
+            # whether price >= take_profit_price and closes the position via market.
+            sl_error = None
             try:
-                sl_req = StopOrderRequest(
+                sl_limit_price = round(stop_price * (1 - SL_LIMIT_SLIPPAGE), 2)
+                sl_req = StopLimitOrderRequest(
                     symbol=SYMBOL_BTC,
                     qty=filled_qty,
                     side=OrderSide.SELL,
                     stop_price=stop_price,
+                    limit_price=sl_limit_price,
                     time_in_force=TimeInForce.GTC,
                 )
                 sl_order = trading_client.submit_order(sl_req)
                 result["sl_order_id"] = str(sl_order.id)
-                print(f"Stop Loss @ ${stop_price:.2f} | order {sl_order.id}")
+                print(f"Stop Loss trigger=${stop_price:.2f} limit=${sl_limit_price:.2f} | order {sl_order.id}")
             except Exception as e:
                 sl_error = str(e)
                 print(f"Falha ao criar Stop Loss: {e}")
 
-            try:
-                tp_req = LimitOrderRequest(
-                    symbol=SYMBOL_BTC,
-                    qty=filled_qty,
-                    side=OrderSide.SELL,
-                    limit_price=take_profit_price,
-                    time_in_force=TimeInForce.GTC,
-                )
-                tp_order = trading_client.submit_order(tp_req)
-                result["tp_order_id"] = str(tp_order.id)
-                print(f"Take Profit @ ${take_profit_price:.2f} | order {tp_order.id}")
-            except Exception as e:
-                tp_error = str(e)
-                print(f"Falha ao criar Take Profit: {e}")
-
-            if sl_error or tp_error:
-                result["error"] = f"SL: {sl_error or 'ok'} | TP: {tp_error or 'ok'}"
+            if sl_error:
+                result["error"] = f"SL: {sl_error}"
                 result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
             else:
                 result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})

@@ -397,7 +397,7 @@
         <div class="pred-item">
             <div class="label">Confidence</div>
             <div class="value">{{ "%.1f"|format((run.confidence|default(0)) * 100) }}%</div>
-            <div class="context">Threshold: 53% {{ '✓' if (run.confidence|default(0)) > 0.53 else '✗' }}</div>
+            <div class="context">Threshold: 55% {{ '✓' if (run.confidence|default(0)) > 0.55 else '✗' }}</div>
         </div>
         <div class="pred-item">
             <div class="label">Sentiment</div>
@@ -620,7 +620,9 @@
                 <td class="{% if (r.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (r.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
                     {{ "%+.2f"|format(r.sentiment_score|default(0)) }}
                 </td>
-                <td>{{ r.action|default('N/A')|replace('_', ' ') }}</td>
+                <td class="{% if r.action in ['BUY_ORDER_SENT', 'CLOSE_POSITION'] %}buy-signal{% elif r.action in ['ORDER_ERROR', 'CLOSE_ERROR'] %}sell-signal{% else %}neutral-signal{% endif %}">
+                    {{ r.action|default('N/A')|replace('_', ' ') }}
+                </td>
                 <td>${{ "%.2f"|format(r.btc_close|default(0)) }}</td>
             </tr>
             {% endfor %}

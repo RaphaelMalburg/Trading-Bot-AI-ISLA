@@ -337,7 +337,7 @@ def sync_trades_from_alpaca(trading_client):
         type_name = order.order_type.name if order.order_type else ""
         if type_name == "LIMIT":
             return "Take Profit"
-        if type_name == "STOP":
+        if type_name in ("STOP", "STOP_LIMIT"):
             return "Stop Loss"
         return "Closed"
 

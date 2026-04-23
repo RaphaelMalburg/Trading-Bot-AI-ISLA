@@ -57,12 +57,15 @@ def fetch_active_positions_with_sl_tp():
         side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
         sl_price = None
         tp_price = None
+        # Position symbols come without slash (e.g. BTCUSD); order symbols with slash.
+        pos_sym = p.symbol.replace("/", "").upper()
         for o in open_orders:
-            if o.symbol != p.symbol:
+            if o.symbol.replace("/", "").upper() != pos_sym:
                 continue
-            if o.order_type.name == "STOP" and o.stop_price:
+            type_name = o.order_type.name
+            if type_name in ("STOP", "STOP_LIMIT") and o.stop_price:
                 sl_price = float(o.stop_price)
-            elif o.order_type.name == "LIMIT" and o.limit_price:
+            elif type_name == "LIMIT" and o.limit_price:
                 tp_price = float(o.limit_price)
 
         out.append({

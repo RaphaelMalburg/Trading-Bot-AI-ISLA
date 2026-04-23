@@ -24,9 +24,14 @@ if not positions:
 
 open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
 
+# Position symbols come without slash (e.g. BTCUSD), order symbols with slash (BTC/USD).
+def normalize(s: str) -> str:
+    return s.replace("/", "").upper()
+
 for p in positions:
-    sl = next((o for o in open_orders if o.symbol == p.symbol and o.order_type.name == "STOP"), None)
-    tp = next((o for o in open_orders if o.symbol == p.symbol and o.order_type.name == "LIMIT"), None)
+    matching = [o for o in open_orders if normalize(o.symbol) == normalize(p.symbol)]
+    sl = next((o for o in matching if o.order_type.name in ("STOP", "STOP_LIMIT")), None)
+    tp = next((o for o in matching if o.order_type.name == "LIMIT"), None)
     print(f"{p.symbol} qty={p.qty} entry=${float(p.avg_entry_price):.2f}")
-    print(f"  SL: {'OK @ $' + str(float(sl.stop_price)) if sl else 'MISSING'}")
-    print(f"  TP: {'OK @ $' + str(float(tp.limit_price)) if tp else 'MISSING'}")
+    print(f"  SL: {'OK trigger=$' + str(float(sl.stop_price)) if sl else 'MISSING'}")
+    print(f"  TP: {'OK @ $' + str(float(tp.limit_price)) if tp else 'MISSING (soft TP via hourly check)'}")
