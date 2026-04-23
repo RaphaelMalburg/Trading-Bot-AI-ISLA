@@ -375,16 +375,30 @@ def trade_logic_multi():
                 # so if price has reached our TP target relative to entry, close manually.
                 entry = float(btc_pos.avg_entry_price)
                 tp_target = entry + (current_atr * TP_ATR_MULT)
+                
+                # Try to find SL from open orders to pass to dashboard
+                open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
+                current_sl = None
+                for o in open_orders:
+                    if o.symbol.replace("/", "").upper() == "BTCUSD" and "stop" in str(o.order_type).lower():
+                        current_sl = float(o.stop_price) if o.stop_price else None
+                        break
+
                 if last_close_btc >= tp_target:
                     cancel_open_orders_for_symbol(trading_client, "BTC/USD")
                     trading_client.close_position("BTC/USD")
                     result["action"] = "TAKE_PROFIT_HIT"
                     result["take_profit"] = float(tp_target)
+                    result["stop_loss"] = current_sl
                     result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
                     print(f"Take-profit alcancado (${last_close_btc:.2f} >= ${tp_target:.2f}). Fechando.")
                     return result
 
                 result["action"] = "ALREADY_POSITIONED"
+                result["stop_loss"] = current_sl
+                result["take_profit"] = float(tp_target)
+                result["position_qty"] = float(btc_pos.qty)
+                result["leverage"] = (float(btc_pos.qty) * last_close_btc) / capital if capital > 0 else 0
                 result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
                 print("Ja existe uma posicao em BTC/USD. Mantendo (SL ativo, TP monitorado).")
                 return result

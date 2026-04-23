@@ -96,44 +96,44 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
                 # Entry Line
                 if entry:
                     fig.add_hline(y=entry, line_dash="solid", line_color="#ffeb3b", line_width=1.5, row=1, col=1)
-                    pnl_color = "#69f0ae" if pnl >= 0 else "#ff5252"
+                    pnl_color = "#3fb950" if pnl >= 0 else "#f85149"
                     pnl_sign = "+" if pnl >= 0 else ""
                     fig.add_annotation(
-                        x=ind_ts[0] if ind_ts else timestamps[0], y=entry,
+                        x=0, xref="x domain", y=entry,
                         text=f"ENTRY: ${entry:.2f} | PnL: {pnl_sign}${pnl:.2f} ({pnl_sign}{pnl_pct:.2f}%)",
                         showarrow=False,
                         xanchor="left",
                         yanchor="bottom",
                         font=dict(color=pnl_color, size=11, family="monospace"),
-                        bgcolor="rgba(0,0,0,0.6)",
+                        bgcolor="rgba(0,0,0,0.8)",
                         row=1, col=1
                     )
                 
                 # Stop Loss Line
                 if sl:
-                    fig.add_hline(y=sl, line_dash="dash", line_color="#ff5252", line_width=1.5, row=1, col=1)
+                    fig.add_hline(y=sl, line_dash="dash", line_color="#f85149", line_width=1.5, row=1, col=1)
                     fig.add_annotation(
-                        x=ind_ts[0] if ind_ts else timestamps[0], y=sl,
+                        x=0, xref="x domain", y=sl,
                         text=f"SL: ${sl:.2f}",
                         showarrow=False,
                         xanchor="left",
                         yanchor="bottom",
-                        font=dict(color="#ff5252", size=10, family="monospace"),
-                        bgcolor="rgba(0,0,0,0.5)",
+                        font=dict(color="#f85149", size=10, family="monospace"),
+                        bgcolor="rgba(0,0,0,0.8)",
                         row=1, col=1
                     )
                 
                 # Take Profit Line
                 if tp:
-                    fig.add_hline(y=tp, line_dash="dash", line_color="#69f0ae", line_width=1.5, row=1, col=1)
+                    fig.add_hline(y=tp, line_dash="dash", line_color="#3fb950", line_width=1.5, row=1, col=1)
                     fig.add_annotation(
-                        x=ind_ts[0] if ind_ts else timestamps[0], y=tp,
+                        x=0, xref="x domain", y=tp,
                         text=f"TP: ${tp:.2f}",
                         showarrow=False,
                         xanchor="left",
                         yanchor="bottom",
-                        font=dict(color="#69f0ae", size=10, family="monospace"),
-                        bgcolor="rgba(0,0,0,0.5)",
+                        font=dict(color="#3fb950", size=10, family="monospace"),
+                        bgcolor="rgba(0,0,0,0.8)",
                         row=1, col=1
                     )
 
