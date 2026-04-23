@@ -88,8 +88,8 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
             # Check if this is the active asset (e.g. BTC)
             if "BTC" in pos["symbol"]:
                 entry = pos["avg_entry_price"]
-                sl = pos.get("sl_price")
-                tp = pos.get("tp_price")
+                sl = pos.get("sl_price") or run_data.get("stop_loss")
+                tp = pos.get("tp_price") or run_data.get("take_profit")
                 pnl = pos["unrealized_pl"]
                 pnl_pct = pos["unrealized_plpc"]
                 

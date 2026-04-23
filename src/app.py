@@ -62,10 +62,12 @@ def fetch_active_positions_with_sl_tp():
         for o in open_orders:
             if o.symbol.replace("/", "").upper() != pos_sym:
                 continue
-            type_name = o.order_type.name
-            if type_name in ("STOP", "STOP_LIMIT") and o.stop_price:
+            
+            # Alpaca SDK uses enums; check both .name and .value for robustness
+            otype = str(o.order_type).lower()
+            if "stop" in otype and o.stop_price:
                 sl_price = float(o.stop_price)
-            elif type_name == "LIMIT" and o.limit_price:
+            elif "limit" in otype and o.limit_price:
                 tp_price = float(o.limit_price)
 
         out.append({
