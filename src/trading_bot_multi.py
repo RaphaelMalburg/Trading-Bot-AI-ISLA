@@ -43,20 +43,30 @@ MODEL_PATH = 'models/rf_model.pkl'
 FEATURES_PATH = 'models/model_features.pkl'
 
 
-def get_latest_data(symbol, lookback_days=30):
+def get_latest_data(symbol, lookback_days=30, max_retries=3):
     client = CryptoHistoricalDataClient()
     now = datetime.now(pytz.UTC)
     start = now - timedelta(days=lookback_days)
 
     req = CryptoBarsRequest(symbol_or_symbols=[symbol], timeframe=TIMEFRAME, start=start, end=now)
-    bars = client.get_crypto_bars(req)
-    df = bars.df.reset_index()
-    df.columns = [c.lower() for c in df.columns]
+    
+    for attempt in range(max_retries):
+        try:
+            bars = client.get_crypto_bars(req)
+            df = bars.df.reset_index()
+            df.columns = [c.lower() for c in df.columns]
 
-    if 'symbol' in df.columns:
-        df = df[df['symbol'] == symbol].copy()
+            if 'symbol' in df.columns:
+                df = df[df['symbol'] == symbol].copy()
 
-    return df
+            return df
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 2
+                print(f"⚠️ Erro ao baixar dados ({symbol}), tentando novamente em {wait}s... ({e})")
+                time.sleep(wait)
+            else:
+                raise e
 
 
 def get_latest_news(symbol="BTC"):
