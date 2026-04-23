@@ -5,6 +5,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+from src.trading_bot_multi import CONFIDENCE_THRESHOLD
+
 def visualize_trades(limit=20):
     """
     Gera imagens individuais de gráficos de candlestick detalhados para os trades 
@@ -40,8 +42,8 @@ def visualize_trades(limit=20):
     X_test = df_test[features]
     probs = model.predict_proba(X_test)[:, 1]
     
-    # Limite de confiança para entrada (55%)
-    df_test['prediction'] = (probs > 0.55).astype(int)
+    # Mesmo limite de confiança usado pelo bot em produção.
+    df_test['prediction'] = (probs > CONFIDENCE_THRESHOLD).astype(int)
     
     trades_found = 0
     os.makedirs("reports/trade_samples", exist_ok=True)

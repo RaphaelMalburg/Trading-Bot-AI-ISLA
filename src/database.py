@@ -306,94 +306,100 @@ def get_statistics() -> dict:
 
 def sync_trades_from_alpaca(trading_client):
     """
-    Fetch all bracket orders from Alpaca and sync their status into the trades table.
-    Matches the parent BUY order to entry and child SELL orders to exit.
+    Sync Alpaca order history into the trades table.
+
+    The bot uses independent MARKET BUY + STOP SELL + LIMIT SELL orders (Alpaca crypto
+    does not support bracket/OCO), so we cannot rely on `o.legs`. Instead we walk the
+    order history in chronological order and pair each BUY fill with the next SELL
+    fill on the same symbol.
     """
     from alpaca.trading.requests import GetOrdersRequest
     from alpaca.trading.enums import QueryOrderStatus, OrderStatus
 
-    req = GetOrdersRequest(status=QueryOrderStatus.ALL, nested=True, limit=100)
+    req = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
     try:
         orders = trading_client.get_orders(req)
     except Exception as e:
         print(f"Error fetching orders for sync: {e}")
         return
 
+    filled_orders = [
+        o for o in orders
+        if o.filled_at and o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+    ]
+    filled_orders.sort(key=lambda o: o.filled_at)
+
+    by_symbol: dict[str, list] = {}
+    for o in filled_orders:
+        by_symbol.setdefault(o.symbol, []).append(o)
+
+    def classify_exit(order) -> str:
+        type_name = order.order_type.name if order.order_type else ""
+        if type_name == "LIMIT":
+            return "Take Profit"
+        if type_name == "STOP":
+            return "Stop Loss"
+        return "Closed"
+
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            
-            for o in orders:
-                # We only care about the parent orders (e.g. bracket BUYs)
-                # or single manual orders. If it's a bracket order, it has legs.
-                if o.side.name != "BUY":
-                    continue
-                
-                # We only store filled entries
-                if o.status not in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED) or not o.filled_at:
-                    continue
 
-                order_id = str(o.id)
-                entry_price = float(o.filled_avg_price) if o.filled_avg_price else 0.0
-                entry_time = o.filled_at.isoformat()
-                qty = float(o.filled_qty) if o.filled_qty else float(o.qty)
+            for symbol, sym_orders in by_symbol.items():
+                open_entries: list = []  # FIFO queue of (order_id, entry_price, entry_time_iso, qty)
 
-                # Check if it already exists
-                cursor.execute("SELECT id, exit_price FROM trades WHERE order_id = ?", (order_id,))
-                row = cursor.fetchone()
-                
-                if not row:
-                    # Insert new trade
-                    cursor.execute("""
-                        INSERT INTO trades (
-                            run_id, order_id, entry_price, entry_time, qty
-                        ) VALUES (NULL, ?, ?, ?, ?)
-                    """, (order_id, entry_price, entry_time, qty))
-                    conn.commit()
-                
-                # Check exit conditions (legs)
-                exit_price = None
-                exit_time = None
-                exit_reason = None
-                
-                if o.legs:
-                    for leg in o.legs:
-                        if leg.status == OrderStatus.FILLED and leg.filled_at:
-                            exit_price = float(leg.filled_avg_price) if leg.filled_avg_price else 0.0
-                            exit_time = leg.filled_at.isoformat()
-                            # Determine reason based on order type or limit vs stop
-                            if leg.order_type.name == "LIMIT":
-                                exit_reason = "Take Profit"
-                            elif leg.order_type.name == "STOP":
-                                exit_reason = "Stop Loss"
-                            else:
-                                exit_reason = "Closed"
-                            break
+                for o in sym_orders:
+                    side = o.side.name if o.side else ""
+                    price = float(o.filled_avg_price) if o.filled_avg_price else 0.0
+                    fill_iso = o.filled_at.isoformat()
+                    qty = float(o.filled_qty) if o.filled_qty else float(o.qty or 0)
+                    if qty <= 0 or price <= 0:
+                        continue
 
-                if exit_price is not None:
-                    # Calculate P&L
-                    pnl_dollars = (exit_price - entry_price) * qty
-                    pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+                    if side == "BUY":
+                        order_id = str(o.id)
+                        cursor.execute("SELECT id FROM trades WHERE order_id = ?", (order_id,))
+                        if not cursor.fetchone():
+                            cursor.execute("""
+                                INSERT INTO trades (run_id, order_id, entry_price, entry_time, qty)
+                                VALUES (NULL, ?, ?, ?, ?)
+                            """, (order_id, price, fill_iso, qty))
+                        open_entries.append((order_id, price, fill_iso, qty))
 
-                    # Calculate duration
-                    try:
-                        entry_dt = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-                        exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
-                        duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
-                    except:
-                        duration_hours = 0
+                    elif side == "SELL" and open_entries:
+                        entry_order_id, entry_price, entry_time_iso, entry_qty = open_entries.pop(0)
 
-                    cursor.execute("""
-                        UPDATE trades SET
-                            exit_price = ?, exit_time = ?, exit_reason = ?,
-                            pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
-                        WHERE order_id = ? AND exit_price IS NULL
-                    """, (
-                        exit_price, exit_time, exit_reason,
-                        pnl_dollars, pnl_percent, duration_hours,
-                        order_id
-                    ))
-                    conn.commit()
+                        cursor.execute(
+                            "SELECT exit_price FROM trades WHERE order_id = ?",
+                            (entry_order_id,),
+                        )
+                        row = cursor.fetchone()
+                        if row and row[0] is not None:
+                            continue  # already closed
+
+                        exit_price = price
+                        exit_reason = classify_exit(o)
+                        pnl_dollars = (exit_price - entry_price) * entry_qty
+                        pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+
+                        try:
+                            entry_dt = datetime.fromisoformat(entry_time_iso.replace('Z', '+00:00'))
+                            exit_dt = datetime.fromisoformat(fill_iso.replace('Z', '+00:00'))
+                            duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
+                        except Exception:
+                            duration_hours = 0
+
+                        cursor.execute("""
+                            UPDATE trades SET
+                                exit_price = ?, exit_time = ?, exit_reason = ?,
+                                pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
+                            WHERE order_id = ? AND exit_price IS NULL
+                        """, (
+                            exit_price, fill_iso, exit_reason,
+                            pnl_dollars, pnl_percent, duration_hours,
+                            entry_order_id,
+                        ))
+            conn.commit()
 
 
 

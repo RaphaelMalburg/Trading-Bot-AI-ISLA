@@ -2,6 +2,7 @@
 Flask web server + trading bot loop.
 Entry point for Railway deployment.
 """
+import copy
 import os
 import sys
 import time
@@ -22,6 +23,8 @@ from src.run_store import add_run, get_latest, get_last_n
 from src.charts import build_candlestick_chart, build_equity_chart
 from src.database import init_db, store_run, get_recent_runs, get_closed_trades, get_statistics, get_todays_statistics, get_equity_history
 from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import GetOrdersRequest
+from alpaca.trading.enums import QueryOrderStatus
 
 # Initialize Alpaca Client
 API_KEY = os.getenv("ALPACA_API_KEY")
@@ -42,17 +45,56 @@ app = Flask(__name__, template_folder=os.path.join(
 ))
 
 
+def fetch_active_positions_with_sl_tp():
+    """Return list of open positions enriched with SL/TP prices from resting orders."""
+    if not trading_client:
+        return []
+    positions = trading_client.get_all_positions()
+    open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
+
+    out = []
+    for p in positions:
+        side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
+        sl_price = None
+        tp_price = None
+        for o in open_orders:
+            if o.symbol != p.symbol:
+                continue
+            if o.order_type.name == "STOP" and o.stop_price:
+                sl_price = float(o.stop_price)
+            elif o.order_type.name == "LIMIT" and o.limit_price:
+                tp_price = float(o.limit_price)
+
+        out.append({
+            "symbol": p.symbol,
+            "qty": float(p.qty),
+            "side": side_str,
+            "market_value": float(p.market_value),
+            "avg_entry_price": float(p.avg_entry_price),
+            "current_price": float(p.current_price),
+            "unrealized_pl": float(p.unrealized_pl),
+            "unrealized_plpc": float(p.unrealized_plpc) * 100,
+            "sl_price": sl_price,
+            "tp_price": tp_price,
+        })
+    return out
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/")
 def dashboard():
-    run = get_latest()
+    # Deep-copy so live-data overrides never mutate the cached run in run_store.
+    run = copy.deepcopy(get_latest())
     runs = get_last_n(10)
 
-    # Get live account data and active positions if possible
     active_positions = []
     if trading_client and run:
         try:
             account = trading_client.get_account()
-            # Override run metrics with live metrics
             run["equity"] = float(account.equity)
             run["buying_power"] = float(account.buying_power)
             last_equity = float(account.last_equity)
@@ -60,40 +102,7 @@ def dashboard():
             run["pnl_today"] = pnl
             run["pnl_today_pct"] = (pnl / last_equity) * 100 if last_equity > 0 else 0
 
-            # Get open positions
-            positions = trading_client.get_all_positions()
-            
-            # Get open orders to find SL and TP levels
-            from alpaca.trading.requests import GetOrdersRequest
-            from alpaca.trading.enums import QueryOrderStatus
-            open_orders_req = GetOrdersRequest(status=QueryOrderStatus.OPEN)
-            open_orders = trading_client.get_orders(open_orders_req)
-            
-            for p in positions:
-                side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
-                
-                # Find associated SL and TP orders for this symbol
-                sl_price = None
-                tp_price = None
-                for o in open_orders:
-                    if o.symbol == p.symbol:
-                        if o.order_type.name == "STOP" and o.stop_price:
-                            sl_price = float(o.stop_price)
-                        elif o.order_type.name == "LIMIT" and o.limit_price:
-                            tp_price = float(o.limit_price)
-                            
-                active_positions.append({
-                    "symbol": p.symbol,
-                    "qty": float(p.qty),
-                    "side": side_str,
-                    "market_value": float(p.market_value),
-                    "avg_entry_price": float(p.avg_entry_price),
-                    "current_price": float(p.current_price),
-                    "unrealized_pl": float(p.unrealized_pl),
-                    "unrealized_plpc": float(p.unrealized_plpc) * 100,
-                    "sl_price": sl_price,
-                    "tp_price": tp_price
-                })
+            active_positions = fetch_active_positions_with_sl_tp()
         except Exception as e:
             logger.error(f"Failed to fetch live account data: {e}")
 
@@ -124,7 +133,7 @@ def dashboard():
 
 @app.route("/api/latest")
 def api_latest():
-    run = get_latest()
+    run = copy.deepcopy(get_latest())
     if run:
         if trading_client:
             try:
@@ -173,28 +182,12 @@ def api_live_stats():
         pnl = equity - last_equity
         pnl_pct = (pnl / last_equity) * 100 if last_equity > 0 else 0
 
-        # Get open positions
-        positions = trading_client.get_all_positions()
-        active_positions = []
-        for p in positions:
-            side_str = str(p.side).split('.')[-1].lower() if p.side else 'unknown'
-            active_positions.append({
-                "symbol": p.symbol,
-                "qty": float(p.qty),
-                "side": side_str,
-                "market_value": float(p.market_value),
-                "avg_entry_price": float(p.avg_entry_price),
-                "current_price": float(p.current_price),
-                "unrealized_pl": float(p.unrealized_pl),
-                "unrealized_plpc": float(p.unrealized_plpc) * 100
-            })
-
         return jsonify({
             "equity": equity,
             "buying_power": buying_power,
             "pnl_today": pnl,
             "pnl_today_pct": pnl_pct,
-            "active_positions": active_positions
+            "active_positions": fetch_active_positions_with_sl_tp(),
         })
     except Exception as e:
         logger.error(f"Live stats API error: {e}")

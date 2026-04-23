@@ -224,8 +224,9 @@ def build_equity_chart(equity_data: list) -> str:
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#16213e",
         font=dict(color="#e0e0e0"),
-        yaxis_title="Cumulative PnL ($)",
-        xaxis_title="Trade Exit Time"
+        yaxis_title="Cumulative Realized PnL ($)",
+        xaxis_title="Trade Exit Time",
+        title="Cumulative Realized PnL (from closed trades)"
     )
     fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
     fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)")

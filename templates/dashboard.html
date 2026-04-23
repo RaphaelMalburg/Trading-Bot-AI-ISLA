@@ -252,7 +252,6 @@
 <header>
     <h1>ML Trading Bot Dashboard</h1>
     <div class="badges">
-        <span class="badge-live">LIVE</span>
         <span class="badge-h1">H1</span>
         <span class="badge-paper">PAPER TRADING</span>
     </div>
@@ -390,10 +389,10 @@
     <div class="prediction-grid">
         <div class="pred-item">
             <div class="label">Prediction</div>
-            <div class="value {{ 'buy-signal' if run.prediction == 1 else 'sell-signal' }}">
+            <div class="value {{ 'buy-signal' if run.prediction == 1 else 'neutral-signal' }}">
                 {{ run.prediction_label|default('N/A') }}
             </div>
-            <div class="context">{{ ['Price Down', 'Price Up'][run.prediction|default(0)] }}</div>
+            <div class="context">{% if run.prediction == 1 %}Price Up{% else %}Price Down / Flat{% endif %}</div>
         </div>
         <div class="pred-item">
             <div class="label">Confidence</div>
@@ -457,9 +456,9 @@
     <div id="chart-container"></div>
 </div>
 
-<!-- Historical Equity Curve Chart -->
+<!-- Cumulative Realized PnL Chart -->
 <div class="card">
-    <h2>Historical Equity Curve</h2>
+    <h2>Cumulative Realized PnL</h2>
     <div id="equity-chart-container"></div>
 </div>
 
@@ -614,7 +613,7 @@
             {% for r in runs|reverse %}
             <tr>
                 <td>{{ r.timestamp[:16] if r.timestamp else 'N/A' }}</td>
-                <td class="{{ 'buy-signal' if r.prediction == 1 else 'sell-signal' }}">
+                <td class="{{ 'buy-signal' if r.prediction == 1 else 'neutral-signal' }}">
                     {{ r.prediction_label|default('N/A') }}
                 </td>
                 <td>{{ "%.1f"|format((r.confidence|default(0)) * 100) }}%</td>
@@ -721,12 +720,21 @@
                     const pnlClass = pos.unrealized_pl >= 0 ? 'trade-win' : 'trade-loss';
                     const pnlSign = pos.unrealized_pl > 0 ? '+' : '';
 
+                    const slCell = pos.sl_price
+                        ? `<strong>$${pos.sl_price.toFixed(2)}</strong>`
+                        : '<span style="color:#999">--</span>';
+                    const tpCell = pos.tp_price
+                        ? `<strong>$${pos.tp_price.toFixed(2)}</strong>`
+                        : '<span style="color:#999">--</span>';
+
                     tr.innerHTML = `
                         <td><strong>${pos.symbol}</strong></td>
                         <td class="${sideClass}">${pos.side.toUpperCase()}</td>
                         <td>${pos.qty.toFixed(4)}</td>
                         <td>$${pos.avg_entry_price.toFixed(2)}</td>
                         <td>$${pos.current_price.toFixed(2)}</td>
+                        <td class="hide-mobile ${pos.sl_price ? 'sell-signal' : ''}">${slCell}</td>
+                        <td class="hide-mobile ${pos.tp_price ? 'buy-signal' : ''}">${tpCell}</td>
                         <td class="hide-mobile">$${pos.market_value.toFixed(2)}</td>
                         <td class="${pnlClass}">${pnlSign}${pos.unrealized_pl.toFixed(2)}</td>
                         <td class="hide-mobile ${pnlClass}">${pnlSign}${pos.unrealized_plpc.toFixed(2)}%</td>

@@ -3,6 +3,8 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.trading_bot_multi import CONFIDENCE_THRESHOLD
+
 def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_atr=3.0):
     """
     Executa um backtest detalhado para o modelo de Machine Learning (Random Forest)
@@ -37,8 +39,8 @@ def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_
     X_test = df_test[features]
     probs = model.predict_proba(X_test)[:, 1]
     
-    # Definir um limite de confiança mais conservador (55%) para gerar sinal de compra
-    df_test['prediction'] = (probs > 0.55).astype(int)
+    # Usa o mesmo limite de confiança do bot live para manter a coerência entre backtest e produção.
+    df_test['prediction'] = (probs > CONFIDENCE_THRESHOLD).astype(int)
     
     # Variáveis de controle da simulação
     capital = initial_capital
