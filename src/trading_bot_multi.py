@@ -43,16 +43,20 @@ MODEL_PATH = 'models/rf_model.pkl'
 FEATURES_PATH = 'models/model_features.pkl'
 
 
-def get_latest_data(symbol, lookback_days=30, max_retries=3):
-    client = CryptoHistoricalDataClient()
+def get_latest_data(symbol, lookback_days=30, max_retries=5):
     now = datetime.now(pytz.UTC)
     start = now - timedelta(days=lookback_days)
-
     req = CryptoBarsRequest(symbol_or_symbols=[symbol], timeframe=TIMEFRAME, start=start, end=now)
     
     for attempt in range(max_retries):
         try:
+            # Re-instantiate client each time to clear any stale connections
+            client = CryptoHistoricalDataClient(api_key=API_KEY, secret_key=SECRET_KEY)
             bars = client.get_crypto_bars(req)
+            
+            if not bars or bars.df.empty:
+                raise ValueError(f"No data returned for {symbol}")
+                
             df = bars.df.reset_index()
             df.columns = [c.lower() for c in df.columns]
 
@@ -61,26 +65,32 @@ def get_latest_data(symbol, lookback_days=30, max_retries=3):
 
             return df
         except Exception as e:
+            wait = (attempt + 1) * 3  # 3s, 6s, 9s, 12s, 15s
             if attempt < max_retries - 1:
-                wait = (attempt + 1) * 2
-                print(f"⚠️ Erro ao baixar dados ({symbol}), tentando novamente em {wait}s... ({e})")
+                print(f"⚠️ Tentativa {attempt+1}/{max_retries} falhou ({symbol}): {e}. Retentando em {wait}s...")
                 time.sleep(wait)
             else:
+                print(f"❌ Todas as {max_retries} tentativas falharam para {symbol}.")
                 raise e
 
 
-def get_latest_news(symbol="BTC"):
+def get_latest_news(symbol="BTC", max_retries=3):
     url = "https://data.alpaca.markets/v1beta1/news"
     headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": SECRET_KEY}
     params = {"symbols": symbol, "limit": 5, "include_content": False}
-    try:
-        import requests
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            return [n['headline'] for n in response.json().get('news', [])]
-        return []
-    except:
-        return []
+    
+    for attempt in range(max_retries):
+        try:
+            import requests
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code == 200:
+                return [n['headline'] for n in response.json().get('news', [])]
+            return []
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return []
 
 
 def process_single_asset(df, asset_name):
