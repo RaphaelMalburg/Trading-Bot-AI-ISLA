@@ -139,9 +139,11 @@ def calculate_position_size(capital, current_price, atr):
     final_pos_value = max(final_pos_value, 11.0)
     final_pos_value = min(final_pos_value, max_pos)
 
-    qty = round(final_pos_value / current_price, 4)
-    if qty * current_price < 10.5:
-        qty = round(11.0 / current_price, 4)
+    # Use 6 decimal places for qty to ensure high-priced assets like BTC 
+    # can meet the $10 minimum order size accurately.
+    qty = round(final_pos_value / current_price, 6)
+    if qty * current_price < 10.1:
+        qty = round(10.5 / current_price, 6)
     if qty * current_price > max_pos:
         return 0, 0
 
@@ -191,6 +193,13 @@ def trade_logic_multi():
         "timestamp": datetime.now(pytz.UTC).isoformat(),
         "steps": [],
         "error": None,
+        "prediction": 0,
+        "prediction_label": "FLAT",
+        "confidence": 0.0,
+        "sentiment_score": 0.0,
+        "action": "WAITING",
+        "position_qty": 0.0,
+        "leverage": 0.0,
     }
 
     print(f"\n--- Bot Multi-Ativo (BTC+ETH): {datetime.now()} ---")

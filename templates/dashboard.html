@@ -418,22 +418,26 @@
             <div class="label">BTC Price</div>
             <div class="value">${{ "%.2f"|format(run.btc_close|default(0)) }}</div>
         </div>
-        {% if run.position_qty %}
+        {% if run.position_qty and run.position_qty > 0 %}
         <div class="pred-item">
             <div class="label">Position Size</div>
-            <div class="value">{{ "%.4f"|format(run.position_qty) }} BTC</div>
+            <div class="value">{{ "%.6f"|format(run.position_qty) }} BTC</div>
             <div class="context">Leverage: {{ "%.1f"|format(run.leverage|default(0)) }}x</div>
         </div>
+        {% if run.stop_loss %}
         <div class="pred-item">
             <div class="label">Stop Loss</div>
             <div class="value sell-signal">${{ "%.2f"|format(run.stop_loss) }}</div>
-            <div class="context">Risk: {{ "%.2f"|format(run.btc_close - run.stop_loss) }}</div>
+            <div class="context">Risk: {{ "%.2f"|format(run.btc_close|default(0) - run.stop_loss) }}</div>
         </div>
+        {% endif %}
+        {% if run.take_profit %}
         <div class="pred-item">
             <div class="label">Take Profit</div>
             <div class="value buy-signal">${{ "%.2f"|format(run.take_profit) }}</div>
-            <div class="context">Reward: {{ "%.2f"|format(run.take_profit - run.btc_close) }}</div>
+            <div class="context">Reward: {{ "%.2f"|format(run.take_profit - run.btc_close|default(0)) }}</div>
         </div>
+        {% endif %}
         {% endif %}
     </div>
 </div>

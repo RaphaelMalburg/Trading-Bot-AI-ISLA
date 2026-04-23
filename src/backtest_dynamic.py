@@ -3,9 +3,9 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.trading_bot_multi import CONFIDENCE_THRESHOLD
+# from src.trading_bot_multi import CONFIDENCE_THRESHOLD
 
-def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_atr=3.0):
+def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_atr=3.0, confidence_threshold=0.55):
     """
     Executa um backtest detalhado para o modelo de Machine Learning (Random Forest)
     utilizando gestão de risco dinâmica e juros compostos.
@@ -40,7 +40,7 @@ def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_
     probs = model.predict_proba(X_test)[:, 1]
     
     # Usa o mesmo limite de confiança do bot live para manter a coerência entre backtest e produção.
-    df_test['prediction'] = (probs > CONFIDENCE_THRESHOLD).astype(int)
+    df_test['prediction'] = (probs > confidence_threshold).astype(int)
     
     # Variáveis de controle da simulação
     capital = initial_capital
@@ -137,12 +137,14 @@ def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_
     buy_and_hold_return = ((btc_end_price - btc_start_price) / btc_start_price) * 100
     
     print("\n" + "="*40)
+    print(f"🎯 Threshold de Confiança: {confidence_threshold}")
     print(f"📅 Período: {equity_dates[0].strftime('%Y-%m-%d')} a {equity_dates[-1].strftime('%Y-%m-%d')}")
     print(f"💰 Resultado Final (Dinâmico): ${capital:.2f}")
     print(f"📈 Retorno do Bot: {total_return:.2f}%")
     print(f"📈 Retorno Buy & Hold (BTC): {buy_and_hold_return:.2f}%")
     print(f"⚖️ Alavancagem Média Usada: {avg_leverage:.2f}x")
     print(f"📉 Pior momento do Bot: ${min(equity_curve):.2f}")
+    print(f"🔄 Total de Trades Realizados: {len(trades)}")
     
     plt.figure(figsize=(14, 10))
     
@@ -168,8 +170,12 @@ def run_backtest_dynamic(initial_capital=100, base_leverage=3.0, sl_atr=1.0, tp_
     plt.xticks(rotation=45)
     
     plt.tight_layout()
-    plt.savefig(f'models/dream_dynamic.png')
-    print(f"📉 Gráfico salvo: models/dream_dynamic.png")
+    plt.savefig(f'models/dream_dynamic_{confidence_threshold}.png')
+    print(f"📉 Gráfico salvo: models/dream_dynamic_{confidence_threshold}.png")
+    
+    return capital, total_return, buy_and_hold_return, avg_leverage, len(trades)
 
 if __name__ == "__main__":
-    run_backtest_dynamic()
+    import sys
+    threshold = float(sys.argv[1]) if len(sys.argv) > 1 else 0.55
+    run_backtest_dynamic(confidence_threshold=threshold)
