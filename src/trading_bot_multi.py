@@ -256,8 +256,8 @@ def trade_logic_multi():
         last_close_btc = df_btc.iloc[-1]['close']
         result["btc_close"] = float(last_close_btc)
 
-        # Store last 100 candles for charting
-        chart_df = df_btc.tail(100).copy()
+        # Store last 500 candles for charting (TradingView style)
+        chart_df = df_btc.tail(500).copy()
         if 'timestamp' in chart_df.columns:
             chart_df['timestamp'] = chart_df['timestamp'].astype(str)
         result["ohlcv_data"] = chart_df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].to_dict(orient='records')
@@ -301,8 +301,8 @@ def trade_logic_multi():
             "atr": float(current_atr),
         }
 
-        # Store indicator series for chart overlays (last 100 bars)
-        chart_indicators = df_full.tail(100).copy()
+        # Store indicator series for chart overlays (last 500 bars)
+        chart_indicators = df_full.tail(500).copy()
         chart_indicators.index = chart_indicators.index.astype(str)
         result["chart_indicators"] = {
             "ema20": chart_indicators['ema20'].tolist(),

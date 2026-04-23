@@ -178,19 +178,48 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
 
     fig.update_layout(
         template="plotly_dark",
-        height=750,
-        margin=dict(l=50, r=20, t=40, b=30),
+        height=900,
+        margin=dict(l=10, r=10, t=30, b=10),
         showlegend=False,
-        xaxis_rangeslider_visible=False,
-        paper_bgcolor="#1a1a2e",
-        plot_bgcolor="#16213e",
-        font=dict(color="#e0e0e0"),
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#c9d1d9", size=10),
+        hovermode="x unified",
+        dragmode="pan", # TradingView vibe: pan by default
     )
 
-    # Style all y-axes
+    # Style all axes for TradingView look
     for i in range(1, 5):
-        fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)", row=i, col=1)
-        fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)", row=i, col=1)
+        fig.update_yaxes(
+            gridcolor="#21262d", 
+            zeroline=False, 
+            showline=True, 
+            linewidth=1, 
+            linecolor="#30363d",
+            row=i, col=1,
+            side="right" # TradingView has price on the right
+        )
+        fig.update_xaxes(
+            gridcolor="#21262d", 
+            zeroline=False, 
+            showline=True, 
+            linewidth=1, 
+            linecolor="#30363d",
+            spikethickness=1,
+            spikedash="dot",
+            spikecolor="#8b949e",
+            spikemode="across",
+            row=i, col=1
+        )
+
+    # Specific for the main chart: Range slider and initial view
+    fig.update_xaxes(
+        row=4, col=1,
+        rangeslider=dict(visible=True, thickness=0.05, bgcolor="#161b22")
+    )
+    
+    # Hide the main candlestick range slider since we put it on the volume row
+    fig.update_layout(xaxis_rangeslider_visible=False)
 
     return fig.to_json()
 
