@@ -43,6 +43,12 @@ MODEL_PATH = 'models/rf_model.pkl'
 FEATURES_PATH = 'models/model_features.pkl'
 
 
+import math
+
+def floor_to_precision(value, precision):
+    factor = 10 ** precision
+    return math.floor(value * factor) / factor
+
 def get_latest_data(symbol, lookback_days=30, max_retries=5):
     now = datetime.now(pytz.UTC)
     start = now - timedelta(days=lookback_days)
@@ -383,6 +389,32 @@ def trade_logic_multi():
                     if o.symbol.replace("/", "").upper() == "BTCUSD" and "stop" in str(o.order_type).lower():
                         current_sl = float(o.stop_price) if o.stop_price else None
                         break
+                
+                # Recovery: if position exists but no SL order found, try to attach one
+                if current_sl is None:
+                    print("⚠️ Posicao ativa sem Stop Loss detectada. Tentando anexar...")
+                    try:
+                        entry = float(btc_pos.avg_entry_price)
+                        # We don't have the original ATR here, but we can use the current one
+                        rec_stop_price = round(entry - (current_atr * SL_ATR_MULT), 2)
+                        rec_limit_price = round(rec_stop_price * (1 - SL_LIMIT_SLIPPAGE), 2)
+                        
+                        # Use actual position qty with safety buffer
+                        rec_qty = floor_to_precision(float(btc_pos.qty) * 0.9999, 6)
+                        
+                        sl_req = StopLimitOrderRequest(
+                            symbol=SYMBOL_BTC,
+                            qty=rec_qty,
+                            side=OrderSide.SELL,
+                            stop_price=rec_stop_price,
+                            limit_price=rec_limit_price,
+                            time_in_force=TimeInForce.GTC,
+                        )
+                        sl_order = trading_client.submit_order(sl_req)
+                        current_sl = rec_stop_price
+                        print(f"✅ Stop Loss de recuperacao anexado @ ${rec_stop_price:.2f}")
+                    except Exception as e:
+                        print(f"❌ Falha na recuperacao do Stop Loss: {e}")
 
                 if last_close_btc >= tp_target:
                     cancel_open_orders_for_symbol(trading_client, "BTC/USD")
@@ -442,14 +474,29 @@ def trade_logic_multi():
                 return result
 
             entry_price = float(filled.filled_avg_price) if filled.filled_avg_price else last_close_btc
-            filled_qty = float(filled.filled_qty) if filled.filled_qty else qty
+            
+            # Fetch the actual position to get the exact quantity available for SELL (accounts for fees)
+            actual_pos = None
+            try:
+                actual_pos = trading_client.get_open_position(SYMBOL_BTC)
+            except:
+                pass
+            
+            filled_qty = float(actual_pos.qty) if actual_pos else (float(filled.filled_qty) if filled.filled_qty else qty)
+            
+            # Small safety buffer: Alpaca sometimes has tiny rounding differences in 'available'
+            # We use 99.9% of the quantity if it's crypto to avoid "insufficient balance" errors
+            sl_qty = filled_qty
+            if "USD" in SYMBOL_BTC: # It's crypto
+                 sl_qty = floor_to_precision(filled_qty * 0.9999, 6)
+
             stop_price = round(entry_price - (current_atr * SL_ATR_MULT), 2)
             take_profit_price = round(entry_price + (current_atr * TP_ATR_MULT), 2)
             result["stop_loss"] = float(stop_price)
             result["take_profit"] = float(take_profit_price)
             result["action"] = "BUY_ORDER_SENT"
 
-            print(f"BUY preenchido @ ${entry_price:.2f} ({filled_qty:.4f} BTC). Configurando SL...")
+            print(f"BUY preenchido @ ${entry_price:.2f} (Posicao: {filled_qty} BTC). Configurando SL para {sl_qty}...")
 
             # Alpaca crypto only allows ONE resting SELL order against the position
             # qty (no OCO/bracket). We pick the SL because downside protection is
@@ -460,7 +507,7 @@ def trade_logic_multi():
                 sl_limit_price = round(stop_price * (1 - SL_LIMIT_SLIPPAGE), 2)
                 sl_req = StopLimitOrderRequest(
                     symbol=SYMBOL_BTC,
-                    qty=filled_qty,
+                    qty=sl_qty,
                     side=OrderSide.SELL,
                     stop_price=stop_price,
                     limit_price=sl_limit_price,

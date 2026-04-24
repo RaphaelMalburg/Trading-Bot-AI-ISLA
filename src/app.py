@@ -69,6 +69,12 @@ def fetch_active_positions_with_sl_tp():
                 sl_price = float(o.stop_price)
             elif "limit" in otype and o.limit_price:
                 tp_price = float(o.limit_price)
+        
+        # Fallback for soft Take Profit from the latest bot run
+        if tp_price is None:
+            latest = get_latest()
+            if latest and latest.get("take_profit") and pos_sym == "BTCUSD":
+                tp_price = float(latest["take_profit"])
 
         out.append({
             "symbol": p.symbol,

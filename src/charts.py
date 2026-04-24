@@ -95,11 +95,15 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
                 
                 # Entry Line
                 if entry:
-                    fig.add_hline(y=entry, line_dash="solid", line_color="#ffeb3b", line_width=1.5, row=1, col=1)
+                    fig.add_shape(
+                        type="line", line=dict(color="#ffeb3b", width=1.5, dash="solid"),
+                        x0=0, x1=1, xref="paper", y0=entry, y1=entry, yref="y1",
+                        row=1, col=1
+                    )
                     pnl_color = "#3fb950" if pnl >= 0 else "#f85149"
                     pnl_sign = "+" if pnl >= 0 else ""
                     fig.add_annotation(
-                        x=0, xref="x domain", y=entry,
+                        x=0, xref="x domain", y=entry, yref="y1",
                         text=f"ENTRY: ${entry:.2f} | PnL: {pnl_sign}${pnl:.2f} ({pnl_sign}{pnl_pct:.2f}%)",
                         showarrow=False,
                         xanchor="left",
@@ -111,9 +115,13 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
                 
                 # Stop Loss Line
                 if sl:
-                    fig.add_hline(y=sl, line_dash="dash", line_color="#f85149", line_width=1.5, row=1, col=1)
+                    fig.add_shape(
+                        type="line", line=dict(color="#f85149", width=1.5, dash="dash"),
+                        x0=0, x1=1, xref="paper", y0=sl, y1=sl, yref="y1",
+                        row=1, col=1
+                    )
                     fig.add_annotation(
-                        x=0, xref="x domain", y=sl,
+                        x=0, xref="x domain", y=sl, yref="y1",
                         text=f"SL: ${sl:.2f}",
                         showarrow=False,
                         xanchor="left",
@@ -125,9 +133,13 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
                 
                 # Take Profit Line
                 if tp:
-                    fig.add_hline(y=tp, line_dash="dash", line_color="#3fb950", line_width=1.5, row=1, col=1)
+                    fig.add_shape(
+                        type="line", line=dict(color="#3fb950", width=1.5, dash="dash"),
+                        x0=0, x1=1, xref="paper", y0=tp, y1=tp, yref="y1",
+                        row=1, col=1
+                    )
                     fig.add_annotation(
-                        x=0, xref="x domain", y=tp,
+                        x=0, xref="x domain", y=tp, yref="y1",
                         text=f"TP: ${tp:.2f}",
                         showarrow=False,
                         xanchor="left",
