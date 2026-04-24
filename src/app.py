@@ -65,10 +65,14 @@ def fetch_active_positions_with_sl_tp():
             
             # Alpaca SDK uses enums; check both .name and .value for robustness
             otype = str(o.order_type).lower()
-            if "stop" in otype and o.stop_price:
-                sl_price = float(o.stop_price)
-            elif "limit" in otype and o.limit_price:
-                tp_price = float(o.limit_price)
+            oside = str(o.side).lower()
+            
+            # SL orders are SELL orders for long positions
+            if "sell" in oside:
+                if "stop" in otype and o.stop_price:
+                    sl_price = float(o.stop_price)
+                elif "limit" in otype and o.limit_price:
+                    tp_price = float(o.limit_price)
         
         # Fallback for soft Take Profit from the latest bot run
         if tp_price is None:
@@ -117,9 +121,6 @@ def dashboard():
         except Exception as e:
             logger.error(f"Failed to fetch live account data: {e}")
 
-    # Build chart after getting active_positions
-    chart_json = build_candlestick_chart(run, active_positions) if run else "{}"
-
     # Get trade data
     if trading_client:
         from src.database import sync_trades_from_alpaca
@@ -128,6 +129,9 @@ def dashboard():
     closed_trades = get_closed_trades(20)
     stats_overall = get_statistics()
     stats_today = get_todays_statistics()
+
+    # Build chart after getting active_positions and closed_trades
+    chart_json = build_candlestick_chart(run, active_positions, closed_trades) if run else "{}"
     
     # Build Equity Curve Chart
     equity_history = get_equity_history()
@@ -202,6 +206,44 @@ def api_live_stats():
         })
     except Exception as e:
         logger.error(f"Live stats API error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/charts")
+def api_charts():
+    run = copy.deepcopy(get_latest())
+    active_positions = fetch_active_positions_with_sl_tp() if trading_client else []
+    
+    # Get historical trades for annotations
+    closed_trades = get_closed_trades(100) # Get more trades for historical plotting
+    
+    chart_json = build_candlestick_chart(run, active_positions, closed_trades) if run else "{}"
+    
+    equity_history = get_equity_history()
+    equity_chart_json = build_equity_chart(equity_history)
+    
+    return jsonify({
+        "candlestick": chart_json,
+        "equity": equity_chart_json
+    })
+
+@app.route("/api/kill_switch", methods=["POST"])
+def api_kill_switch():
+    if not trading_client:
+        return jsonify({"error": "No trading client configured"}), 500
+    
+    try:
+        logger.warning("🚨 KILL SWITCH ACTIVATED 🚨")
+        # 1. Cancel all open orders
+        trading_client.cancel_orders()
+        logger.warning("All open orders cancelled.")
+        
+        # 2. Close all positions at market price
+        trading_client.close_all_positions(cancel_orders=True)
+        logger.warning("All positions closed.")
+        
+        return jsonify({"status": "success", "message": "All orders cancelled and positions closed."})
+    except Exception as e:
+        logger.error(f"Kill switch error: {e}")
         return jsonify({"error": str(e)}), 500
 
 def bot_loop():

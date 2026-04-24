@@ -45,6 +45,51 @@
             100% { opacity: 1; } 
         }
 
+        .kill-switch-btn {
+            background: #b71c1c;
+            color: #ffcdd2;
+            border: 1px solid #ff5252;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-left: 12px;
+            transition: all 0.2s;
+        }
+        .kill-switch-btn:hover {
+            background: #d32f2f;
+            box-shadow: 0 0 10px rgba(255, 82, 82, 0.5);
+        }
+
+        /* Toasts */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            background: #0d1117;
+            border-left: 4px solid #3fb950;
+            color: #c9d1d9;
+            padding: 16px 20px;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            font-size: 14px;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease-in-out;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .toast.error { border-left-color: #f85149; }
+
         /* Top stats bar */
         .stats-grid {
             display: grid;
@@ -278,6 +323,7 @@
         <span class="badge-live" id="live-indicator">● LIVE</span>
         <span class="badge-h1">H1</span>
         <span class="badge-paper">PAPER TRADING</span>
+        <button id="btn-kill-switch" onclick="activateKillSwitch()" class="kill-switch-btn">🚨 KILL SWITCH</button>
     </div>
 </header>
 
@@ -660,8 +706,62 @@
 </div>
 {% endif %}
 
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
 <!-- Plotly chart render -->
 <script>
+    // Toast notification system
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerText = message;
+        container.appendChild(toast);
+        
+        // Trigger reflow for animation
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 5000);
+    }
+
+    // Kill Switch logic
+    async function activateKillSwitch() {
+        if(!confirm("⚠️ AVISO: Isso vai cancelar todas as ordens abertas e FECHAR TODAS AS POSIÇÕES a mercado imediatamente. Tem certeza?")) return;
+        
+        try {
+            const res = await fetch('/api/kill_switch', { method: 'POST' });
+            const data = await res.json();
+            if(res.ok) {
+                showToast("✅ Kill Switch ativado com sucesso. Tudo fechado.", "success");
+                updateCharts(); // Refresh to clear active lines
+            } else {
+                showToast("❌ Erro no Kill Switch: " + data.error, "error");
+            }
+        } catch(e) {
+            showToast("❌ Erro de conexão ao ativar Kill Switch", "error");
+        }
+    }
+
+    // Soft-Reload for Charts (AJAX instead of page reload)
+    async function updateCharts() {
+        try {
+            const res = await fetch('/api/charts');
+            const data = await res.json();
+            
+            const chartData = JSON.parse(data.candlestick);
+            Plotly.react('chart-container', chartData.data, chartData.layout);
+            
+            const equityData = JSON.parse(data.equity);
+            Plotly.react('equity-chart-container', equityData.data, equityData.layout);
+        } catch(e) {
+            console.error("Failed to update charts:", e);
+        }
+    }
+
     var chartData = {{ chart_json|safe }};
     var equityChartData = {{ equity_chart_json|safe }};
 
@@ -794,10 +894,10 @@
         }
     }, 5000);
 
-    // Full Page Refresh for Chart/Prediction (every 5 min)
-    // This ensures new hourly candles and model predictions appear without manual refresh
+    // Soft Refresh for Chart/Prediction (every 5 min)
+    // This ensures new hourly candles and model predictions appear without page refresh flash
     setInterval(() => {
-        window.location.reload();
+        updateCharts();
     }, 300000);
 </script>
 

@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def build_candlestick_chart(run_data: dict, active_positions: list | None = None) -> str:
+def build_candlestick_chart(run_data: dict, active_positions: list | None = None, closed_trades: list | None = None) -> str:
     """
     Build an interactive candlestick chart with indicator overlays.
     Returns Plotly figure as JSON string for client-side rendering.
@@ -149,6 +149,35 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
                         row=1, col=1
                     )
 
+    # Historical Trade Annotations
+    if closed_trades:
+        buy_times, buy_prices = [], []
+        sell_times, sell_prices = [], []
+        for t in closed_trades:
+            try:
+                if t.get('side') == 'buy':
+                    buy_times.append(t['filled_at'])
+                    buy_prices.append(float(t['price']))
+                elif t.get('side') == 'sell':
+                    sell_times.append(t['filled_at'])
+                    sell_prices.append(float(t['price']))
+            except Exception:
+                pass
+        
+        if buy_times:
+            fig.add_trace(go.Scatter(
+                x=buy_times, y=buy_prices, mode='markers', name='Buy Executed',
+                marker=dict(symbol='triangle-up', size=12, color='#3fb950', line=dict(width=1, color='white')),
+                hoverinfo='x+y+name'
+            ), row=1, col=1)
+        
+        if sell_times:
+            fig.add_trace(go.Scatter(
+                x=sell_times, y=sell_prices, mode='markers', name='Sell Executed',
+                marker=dict(symbol='triangle-down', size=12, color='#f85149', line=dict(width=1, color='white')),
+                hoverinfo='x+y+name'
+            ), row=1, col=1)
+
     # Row 2: RSI
     rsi = indicators.get("rsi", [])
     if rsi and len(rsi) == len(ind_ts):
@@ -244,38 +273,64 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
 
 def build_equity_chart(equity_data: list) -> str:
     """
-    Build an interactive equity curve chart.
+    Build an interactive equity curve chart with Drawdown.
     Returns Plotly figure as JSON string.
     """
     if not equity_data:
         fig = go.Figure()
         fig.add_annotation(text="No closed trades yet to build equity curve.", showarrow=False, font=dict(size=16, color="#888"))
-        fig.update_layout(template="plotly_dark", height=300, paper_bgcolor="#1a1a2e", plot_bgcolor="#16213e")
+        fig.update_layout(template="plotly_dark", height=400, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117")
         return fig.to_json()
 
     timestamps = [d["timestamp"] for d in equity_data]
     equities = [d["equity"] for d in equity_data]
+    
+    # Calculate Drawdown
+    hwm = []
+    drawdown = []
+    current_max = equities[0] if equities else 0
+    for eq in equities:
+        if eq > current_max:
+            current_max = eq
+        hwm.append(current_max)
+        
+        # Safe division
+        dd = ((eq - current_max) / current_max * 100) if current_max > 0 else 0
+        drawdown.append(dd)
 
-    fig = go.Figure()
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.7, 0.3],
+        vertical_spacing=0.05,
+        subplot_titles=("Cumulative Realized PnL ($)", "Drawdown (%)")
+    )
+
     fig.add_trace(go.Scatter(
         x=timestamps, y=equities, mode="lines+markers", name="Cumulative PnL",
-        line=dict(color="#69f0ae", width=2),
-        marker=dict(size=6, color="#69f0ae"),
-        fill="tozeroy", fillcolor="rgba(105,240,174,0.1)"
-    ))
+        line=dict(color="#3fb950", width=2),
+        marker=dict(size=6, color="#3fb950"),
+        fill="tozeroy", fillcolor="rgba(63,185,80,0.1)"
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(
+        x=timestamps, y=drawdown, mode="lines", name="Drawdown",
+        line=dict(color="#f85149", width=1.5),
+        fill="tozeroy", fillcolor="rgba(248,81,73,0.2)"
+    ), row=2, col=1)
 
     fig.update_layout(
         template="plotly_dark",
-        height=350,
-        margin=dict(l=50, r=20, t=40, b=30),
-        paper_bgcolor="#1a1a2e",
-        plot_bgcolor="#16213e",
-        font=dict(color="#e0e0e0"),
-        yaxis_title="Cumulative Realized PnL ($)",
-        xaxis_title="Trade Exit Time",
-        title="Cumulative Realized PnL (from closed trades)"
+        height=450,
+        margin=dict(l=40, r=20, t=40, b=30),
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#c9d1d9"),
+        showlegend=False,
+        hovermode="x unified"
     )
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+    
+    fig.update_yaxes(gridcolor="#21262d", zeroline=False, showline=True, linecolor="#30363d")
+    fig.update_xaxes(gridcolor="#21262d", zeroline=False, showline=True, linecolor="#30363d")
 
     return fig.to_json()

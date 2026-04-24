@@ -382,16 +382,19 @@ def trade_logic_multi():
                 entry = float(btc_pos.avg_entry_price)
                 tp_target = entry + (current_atr * TP_ATR_MULT)
                 
-                # Try to find SL from open orders to pass to dashboard
-                open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
                 current_sl = None
-                for o in open_orders:
-                    if o.symbol.replace("/", "").upper() == "BTCUSD" and "stop" in str(o.order_type).lower():
-                        current_sl = float(o.stop_price) if o.stop_price else None
-                        break
                 
-                # Recovery: if position exists but no SL order found, try to attach one
-                if current_sl is None:
+                # Check for existing SL orders
+                try:
+                    open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[SYMBOL_BTC]))
+                    for o in open_orders:
+                        if o.side == OrderSide.SELL and o.order_type in [OrderType.STOP_LIMIT, OrderType.STOP]:
+                            current_sl = float(o.stop_price) if o.stop_price else None
+                except Exception as e:
+                    print(f"Erro ao checar ordens abertas: {e}")
+
+                # Se nao tiver SL pendente, cria um novo SL de recuperacao (usando StopLimitOrderRequest)
+                if not current_sl:
                     print("⚠️ Posicao ativa sem Stop Loss detectada. Tentando anexar...")
                     try:
                         entry = float(btc_pos.avg_entry_price)
