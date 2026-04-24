@@ -33,8 +33,8 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
     fig = make_subplots(
         rows=4, cols=1,
         shared_xaxes=True,
-        row_heights=[0.50, 0.15, 0.15, 0.20],
-        vertical_spacing=0.03,
+        row_heights=[0.60, 0.12, 0.12, 0.16], # Aumentado o gráfico principal
+        vertical_spacing=0.04,
         subplot_titles=("BTC/USD (H1)", "RSI (14)", "MACD", "Volume"),
     )
 
@@ -209,7 +209,9 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
             linewidth=1, 
             linecolor="#30363d",
             row=i, col=1,
-            side="right" # TradingView has price on the right
+            side="right", # TradingView has price on the right
+            autorange=True, # Garante que o gráfico não fique "esmagado"
+            fixedrange=False # Permite zoom no eixo Y
         )
         fig.update_xaxes(
             gridcolor="#21262d", 
@@ -224,14 +226,18 @@ def build_candlestick_chart(run_data: dict, active_positions: list | None = None
             row=i, col=1
         )
 
-    # Specific for the main chart: Range slider and initial view
-    fig.update_xaxes(
-        row=4, col=1,
-        rangeslider=dict(visible=True, thickness=0.05, bgcolor="#161b22")
-    )
-    
+    # Specific for the main chart: Initial view range using proper Plotly logic
+    if len(timestamps) > 100:
+        fig.update_xaxes(
+            range=[timestamps[-100], timestamps[-1]],
+            row=4, col=1
+        )
+
     # Hide the main candlestick range slider since we put it on the volume row
-    fig.update_layout(xaxis_rangeslider_visible=False)
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        uirevision='constant' # Mantém o estado do zoom após o refresh
+    )
 
     return fig.to_json()
 
