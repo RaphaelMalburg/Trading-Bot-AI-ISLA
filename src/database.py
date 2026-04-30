@@ -367,6 +367,21 @@ def get_closed_trades(limit: int = 50, offset: int = 0) -> list[dict]:
             return [dict(row) for row in cursor.fetchall()]
 
 
+def get_open_trades() -> list[dict]:
+    """Get currently open trades (no exit recorded yet)."""
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM trades WHERE exit_price IS NULL
+                ORDER BY entry_time DESC
+            """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+
 def get_equity_history() -> list[dict]:
     """Calculate the historical equity curve from closed trades."""
     with _db_lock:
