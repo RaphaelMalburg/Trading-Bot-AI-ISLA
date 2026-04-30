@@ -1,19 +1,17 @@
 """
 SQLite database for persistent storage of runs, trades, and statistics.
-
-The bot is the source of truth for the trade ledger:
-- `store_run` is called every cycle by the dashboard background loop.
-- `store_trade` is called the moment a BUY fills (with the originating run_id).
-- `sync_closed_trades_only` is a lightweight incremental sync that only
-  updates open rows when their matching SELL is filled on Alpaca.
-- `sync_trades_from_alpaca` remains as a one-shot full reconciler exposed
-  via /admin/resync. It is no longer called on every dashboard load.
+...
 """
+
 import sqlite3
 import os
+import json
 import logging
 from datetime import datetime, timezone
 import threading
+from typing import TypedDict, Optional
+from typing import TypedDict, Optional
+from typing import TypedDict, Optional
 
 DB_PATH = "data/trading_bot.db"
 
@@ -21,6 +19,29 @@ logger = logging.getLogger(__name__)
 
 # Thread-safe lock for database access
 _db_lock = threading.Lock()
+
+
+class RunDict(TypedDict, total=False):
+    timestamp: str
+    btc_close: float
+    prediction: int
+    prediction_label: str
+    confidence: float
+    sentiment_score: float
+    action: str
+    order_id: Optional[str]
+    position_qty: float
+    leverage: float
+    stop_loss: Optional[float]
+    take_profit: Optional[float]
+    error: Optional[str]
+    equity: float
+    buying_power: float
+    pnl_today: float
+    pnl_today_pct: float
+    drift_warning: bool
+    drift_metrics: dict
+    circuit_breaker: Optional[dict]
 
 
 def init_db():
@@ -46,6 +67,13 @@ def init_db():
                 leverage REAL,
                 stop_loss REAL,
                 take_profit REAL,
+                equity REAL,
+                buying_power REAL,
+                pnl_today REAL,
+                pnl_today_pct REAL,
+                drift_warning INTEGER DEFAULT 0,
+                drift_metrics TEXT,
+                circuit_breaker TEXT,
                 error TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
@@ -95,37 +123,39 @@ def init_db():
         conn.commit()
 
 
-def store_run(run_data: dict) -> int:
-    """Store a bot run. Returns the run_id."""
+def store_run(run_data: dict) -> int | None:
+    """Store a bot run. Returns the run_id or None if duplicate."""
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO runs (
                         timestamp, btc_close, prediction, prediction_label,
                         confidence, sentiment_score, action, order_id,
                         position_qty, leverage, stop_loss, take_profit, error
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    run_data.get("timestamp"),
-                    run_data.get("btc_close"),
-                    run_data.get("prediction"),
-                    run_data.get("prediction_label"),
-                    run_data.get("confidence"),
-                    run_data.get("sentiment_score"),
-                    run_data.get("action"),
-                    run_data.get("order_id"),
-                    run_data.get("position_qty"),
-                    run_data.get("leverage"),
-                    run_data.get("stop_loss"),
-                    run_data.get("take_profit"),
-                    run_data.get("error"),
-                ))
+                """,
+                    (
+                        run_data.get("timestamp"),
+                        run_data.get("btc_close"),
+                        run_data.get("prediction"),
+                        run_data.get("prediction_label"),
+                        run_data.get("confidence"),
+                        run_data.get("sentiment_score"),
+                        run_data.get("action"),
+                        run_data.get("order_id"),
+                        run_data.get("position_qty"),
+                        run_data.get("leverage"),
+                        run_data.get("stop_loss"),
+                        run_data.get("take_profit"),
+                        run_data.get("error"),
+                    ),
+                )
                 conn.commit()
                 return cursor.lastrowid
             except sqlite3.IntegrityError:
-                # Run already exists for this timestamp (e.g., retry)
                 return None
 
 
@@ -135,9 +165,12 @@ def get_recent_runs(limit: int = 20) -> list[dict]:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM runs ORDER BY timestamp DESC LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
 
@@ -146,29 +179,37 @@ def store_trade(run_id: int, trade_data: dict) -> int:
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO trades (
                     run_id, order_id, entry_price, entry_time, qty
                 ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                run_id,
-                trade_data.get("order_id"),
-                trade_data.get("entry_price"),
-                trade_data.get("entry_time"),
-                trade_data.get("qty"),
-            ))
+            """,
+                (
+                    run_id,
+                    trade_data.get("order_id"),
+                    trade_data.get("entry_price"),
+                    trade_data.get("entry_time"),
+                    trade_data.get("qty"),
+                ),
+            )
             conn.commit()
             return cursor.lastrowid
 
 
-def close_trade(order_id: str, exit_price: float, exit_time: str, exit_reason: str) -> bool:
+def close_trade(
+    order_id: str, exit_price: float, exit_time: str, exit_reason: str
+) -> bool:
     """Close/update a trade with exit details. Returns True if successful."""
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
 
             # Get entry details
-            cursor.execute("SELECT entry_price, entry_time, qty FROM trades WHERE order_id = ?", (order_id,))
+            cursor.execute(
+                "SELECT entry_price, entry_time, qty FROM trades WHERE order_id = ?",
+                (order_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return False
@@ -181,23 +222,30 @@ def close_trade(order_id: str, exit_price: float, exit_time: str, exit_reason: s
 
             # Calculate duration
             try:
-                entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
-                exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                entry_dt = datetime.fromisoformat(entry_time_str.replace("Z", "+00:00"))
+                exit_dt = datetime.fromisoformat(exit_time.replace("Z", "+00:00"))
                 duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
             except Exception:
                 duration_hours = 0
 
             # Update trade
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE trades SET
                     exit_price = ?, exit_time = ?, exit_reason = ?,
                     pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
                 WHERE order_id = ?
-            """, (
-                exit_price, exit_time, exit_reason,
-                pnl_dollars, pnl_percent, duration_hours,
-                order_id
-            ))
+            """,
+                (
+                    exit_price,
+                    exit_time,
+                    exit_reason,
+                    pnl_dollars,
+                    pnl_percent,
+                    duration_hours,
+                    order_id,
+                ),
+            )
             conn.commit()
             return True
 
@@ -223,29 +271,59 @@ def mark_all_open_as_exited(exit_price: float, exit_reason: str = "KILL_SWITCH")
                 if entry_price is None or qty is None:
                     continue
                 pnl_dollars = (exit_price - entry_price) * qty
-                pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+                pnl_percent = (
+                    ((exit_price - entry_price) / entry_price) * 100
+                    if entry_price
+                    else 0
+                )
                 try:
-                    entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
-                    exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                    entry_dt = datetime.fromisoformat(
+                        entry_time_str.replace("Z", "+00:00")
+                    )
+                    exit_dt = datetime.fromisoformat(exit_time.replace("Z", "+00:00"))
                     duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
                 except Exception:
                     duration_hours = 0
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE trades SET
                         exit_price = ?, exit_time = ?, exit_reason = ?,
                         pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
                     WHERE order_id = ? AND exit_price IS NULL
-                """, (
-                    exit_price, exit_time, exit_reason,
-                    pnl_dollars, pnl_percent, duration_hours,
-                    order_id,
-                ))
+                """,
+                    (
+                        exit_price,
+                        exit_time,
+                        exit_reason,
+                        pnl_dollars,
+                        pnl_percent,
+                        duration_hours,
+                        order_id,
+                    ),
+                )
             conn.commit()
             return len(rows)
 
 
-def get_last_synced_time() -> str:
+def update_drift_metrics(run_id: int, metrics: dict) -> None:
+    """Update a run with drift detection metrics."""
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE runs SET
+                    error = COALESCE(error || ' | ', '') || ?,
+                    drift_warning = ?
+                WHERE id = ?
+            """,
+                (json.dumps(metrics), metrics.get("drift_warning", False), run_id),
+            )
+            conn.commit()
+
+
+def get_last_synced_time() -> str | None:
     """
     Returns the most recent entry_time or exit_time we've seen, ISO format.
     Used as the `after` watermark for incremental Alpaca sync.
@@ -262,15 +340,14 @@ def get_last_synced_time() -> str:
             """)
             row = cursor.fetchone()
             return row[0] if row and row[0] else None
-
-
-def get_open_trades() -> list[dict]:
     """Get currently open trades (no exit_price)."""
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC")
+            cursor.execute(
+                "SELECT * FROM trades WHERE exit_price IS NULL ORDER BY entry_time DESC"
+            )
             return [dict(row) for row in cursor.fetchall()]
 
 
@@ -280,11 +357,15 @@ def get_closed_trades(limit: int = 50, offset: int = 0) -> list[dict]:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM trades WHERE exit_price IS NOT NULL
                 ORDER BY exit_time DESC LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """,
+                (limit, offset),
+            )
             return [dict(row) for row in cursor.fetchall()]
+
 
 def get_equity_history() -> list[dict]:
     """Calculate the historical equity curve from closed trades."""
@@ -301,15 +382,12 @@ def get_equity_history() -> list[dict]:
                 ORDER BY exit_time ASC
             """)
             trades = cursor.fetchall()
-            
+
             history = []
             cumulative = 0
             for row in trades:
-                cumulative += row['pnl_dollars']
-                history.append({
-                    "timestamp": row['timestamp'],
-                    "equity": cumulative
-                })
+                cumulative += row["pnl_dollars"]
+                history.append({"timestamp": row["timestamp"], "equity": cumulative})
             return history
 
 
@@ -332,31 +410,47 @@ def get_statistics() -> dict:
             open_trades = cursor.fetchone()[0]
 
             # Won trades
-            cursor.execute("SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars > 0")
+            cursor.execute(
+                "SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars > 0"
+            )
             won_trades = cursor.fetchone()[0]
 
             # Lost trades
-            cursor.execute("SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars <= 0")
+            cursor.execute(
+                "SELECT COUNT(*) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars <= 0"
+            )
             lost_trades = cursor.fetchone()[0]
 
             # Total P&L
-            cursor.execute("SELECT COALESCE(SUM(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL")
+            cursor.execute(
+                "SELECT COALESCE(SUM(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL"
+            )
             total_pnl = cursor.fetchone()[0]
 
             # Average win/loss
-            cursor.execute("SELECT COALESCE(AVG(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars > 0")
+            cursor.execute(
+                "SELECT COALESCE(AVG(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars > 0"
+            )
             avg_win = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COALESCE(AVG(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars < 0")
+            cursor.execute(
+                "SELECT COALESCE(AVG(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL AND pnl_dollars < 0"
+            )
             avg_loss = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COALESCE(MAX(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL")
+            cursor.execute(
+                "SELECT COALESCE(MAX(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL"
+            )
             best_trade = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COALESCE(MIN(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL")
+            cursor.execute(
+                "SELECT COALESCE(MIN(pnl_dollars), 0) FROM trades WHERE exit_price IS NOT NULL"
+            )
             worst_trade = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COALESCE(AVG(duration_hours), 0) FROM trades WHERE exit_price IS NOT NULL")
+
+            cursor.execute(
+                "SELECT COALESCE(AVG(duration_hours), 0) FROM trades WHERE exit_price IS NOT NULL"
+            )
             avg_duration = cursor.fetchone()[0]
 
             win_rate = (won_trades / closed_trades * 100) if closed_trades > 0 else 0
@@ -373,7 +467,7 @@ def get_statistics() -> dict:
                 "avg_loss": abs(avg_loss),
                 "best_trade": best_trade,
                 "worst_trade": worst_trade,
-                "avg_duration_hours": avg_duration
+                "avg_duration_hours": avg_duration,
             }
 
 
@@ -400,8 +494,10 @@ def sync_trades_from_alpaca(trading_client):
         return
 
     filled_orders = [
-        o for o in orders
-        if o.filled_at and o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+        o
+        for o in orders
+        if o.filled_at
+        and o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
     ]
     filled_orders.sort(key=lambda o: o.filled_at)
 
@@ -434,16 +530,23 @@ def sync_trades_from_alpaca(trading_client):
 
                     if side == "BUY":
                         order_id = str(o.id)
-                        cursor.execute("SELECT id FROM trades WHERE order_id = ?", (order_id,))
+                        cursor.execute(
+                            "SELECT id FROM trades WHERE order_id = ?", (order_id,)
+                        )
                         if not cursor.fetchone():
-                            cursor.execute("""
+                            cursor.execute(
+                                """
                                 INSERT INTO trades (run_id, order_id, entry_price, entry_time, qty)
                                 VALUES (NULL, ?, ?, ?, ?)
-                            """, (order_id, price, fill_iso, qty))
+                            """,
+                                (order_id, price, fill_iso, qty),
+                            )
                         open_entries.append((order_id, price, fill_iso, qty))
 
                     elif side == "SELL" and open_entries:
-                        entry_order_id, entry_price, entry_time_iso, entry_qty = open_entries.pop(0)
+                        entry_order_id, entry_price, entry_time_iso, entry_qty = (
+                            open_entries.pop(0)
+                        )
 
                         cursor.execute(
                             "SELECT exit_price FROM trades WHERE order_id = ?",
@@ -456,28 +559,41 @@ def sync_trades_from_alpaca(trading_client):
                         exit_price = price
                         exit_reason = classify_exit(o)
                         pnl_dollars = (exit_price - entry_price) * entry_qty
-                        pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+                        pnl_percent = (
+                            ((exit_price - entry_price) / entry_price) * 100
+                            if entry_price
+                            else 0
+                        )
 
                         try:
-                            entry_dt = datetime.fromisoformat(entry_time_iso.replace('Z', '+00:00'))
-                            exit_dt = datetime.fromisoformat(fill_iso.replace('Z', '+00:00'))
+                            entry_dt = datetime.fromisoformat(
+                                entry_time_iso.replace("Z", "+00:00")
+                            )
+                            exit_dt = datetime.fromisoformat(
+                                fill_iso.replace("Z", "+00:00")
+                            )
                             duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
                         except Exception:
                             duration_hours = 0
 
-                        cursor.execute("""
+                        cursor.execute(
+                            """
                             UPDATE trades SET
                                 exit_price = ?, exit_time = ?, exit_reason = ?,
                                 pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
                             WHERE order_id = ? AND exit_price IS NULL
-                        """, (
-                            exit_price, fill_iso, exit_reason,
-                            pnl_dollars, pnl_percent, duration_hours,
-                            entry_order_id,
-                        ))
+                        """,
+                            (
+                                exit_price,
+                                fill_iso,
+                                exit_reason,
+                                pnl_dollars,
+                                pnl_percent,
+                                duration_hours,
+                                entry_order_id,
+                            ),
+                        )
             conn.commit()
-
-
 
 
 def sync_closed_trades_only(trading_client) -> int:
@@ -497,7 +613,9 @@ def sync_closed_trades_only(trading_client) -> int:
     with _db_lock:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT MIN(entry_time) FROM trades WHERE exit_price IS NULL")
+            cursor.execute(
+                "SELECT MIN(entry_time) FROM trades WHERE exit_price IS NULL"
+            )
             row = cursor.fetchone()
             oldest_open = row[0] if row else None
 
@@ -505,7 +623,7 @@ def sync_closed_trades_only(trading_client) -> int:
         return 0  # nothing to close
 
     try:
-        after_dt = datetime.fromisoformat(oldest_open.replace('Z', '+00:00'))
+        after_dt = datetime.fromisoformat(oldest_open.replace("Z", "+00:00"))
     except Exception:
         after_dt = None
 
@@ -517,7 +635,8 @@ def sync_closed_trades_only(trading_client) -> int:
         return 0
 
     sells = [
-        o for o in orders
+        o
+        for o in orders
         if o.filled_at
         and o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
         and o.side
@@ -553,37 +672,53 @@ def sync_closed_trades_only(trading_client) -> int:
                 # Stored order_ids correspond to BUY orders, but we filter by
                 # JOIN-ish proxy: just take the oldest open row whose entry_time
                 # < SELL.filled_at. (Single-symbol assumption holds for BTC/USD.)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT id, order_id, entry_price, entry_time, qty
                     FROM trades
                     WHERE exit_price IS NULL AND entry_time <= ?
                     ORDER BY entry_time ASC
                     LIMIT 1
-                """, (exit_time,))
+                """,
+                    (exit_time,),
+                )
                 row = cursor.fetchone()
                 if not row:
                     continue
 
                 trade_id, entry_order_id, entry_price, entry_time_str, qty = row
                 pnl_dollars = (exit_price - entry_price) * qty
-                pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+                pnl_percent = (
+                    ((exit_price - entry_price) / entry_price) * 100
+                    if entry_price
+                    else 0
+                )
                 try:
-                    entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
-                    exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                    entry_dt = datetime.fromisoformat(
+                        entry_time_str.replace("Z", "+00:00")
+                    )
+                    exit_dt = datetime.fromisoformat(exit_time.replace("Z", "+00:00"))
                     duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
                 except Exception:
                     duration_hours = 0
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE trades SET
                         exit_price = ?, exit_time = ?, exit_reason = ?,
                         pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
                     WHERE id = ? AND exit_price IS NULL
-                """, (
-                    exit_price, exit_time, exit_reason,
-                    pnl_dollars, pnl_percent, duration_hours,
-                    trade_id,
-                ))
+                """,
+                    (
+                        exit_price,
+                        exit_time,
+                        exit_reason,
+                        pnl_dollars,
+                        pnl_percent,
+                        duration_hours,
+                        trade_id,
+                    ),
+                )
                 if cursor.rowcount > 0:
                     closed += 1
             conn.commit()
@@ -603,28 +738,40 @@ def get_todays_statistics() -> dict:
             today = date.today().isoformat()
 
             # Today's trades
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM trades
                 WHERE DATE(entry_time) = ?
-            """, (today,))
+            """,
+                (today,),
+            )
             total = cursor.fetchone()[0]
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM trades
                 WHERE DATE(entry_time) = ? AND exit_price IS NOT NULL AND pnl_dollars > 0
-            """, (today,))
+            """,
+                (today,),
+            )
             won = cursor.fetchone()[0]
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM trades
                 WHERE DATE(entry_time) = ? AND exit_price IS NOT NULL AND pnl_dollars < 0
-            """, (today,))
+            """,
+                (today,),
+            )
             lost = cursor.fetchone()[0]
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COALESCE(SUM(pnl_dollars), 0) FROM trades
                 WHERE DATE(entry_time) = ?
-            """, (today,))
+            """,
+                (today,),
+            )
             pnl = cursor.fetchone()[0]
 
             return {

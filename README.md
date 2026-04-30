@@ -21,15 +21,42 @@ Integração com o modelo LLM **`google/gemini-2.5-flash-lite` (via OpenRouter)*
 - **Stop Loss / Take Profit:** Dinâmicos, baseados na volatilidade atual do ativo (ATR).
 - **Fractional Kelly Criterion:** Ajusta o tamanho da posição/alavancagem com base no risco, maximizando o crescimento geométrico da conta e protegendo o capital contra *drawdowns*.
 
+## ✨ Melhorias Recentes (v2.0)
+
+### 🔐 Infrastructure & Reliability
+- **Configuração Centralizada** (Pydantic Settings) — validação de variáveis de ambiente.
+- **Graceful Shutdown** — limpeza de posições ao receber SIGTERM/SIGINT.
+- **Circuit Breaker** — limite de perda diária configurável (default -10%).
+- **Model Drift Detection** — monitora confiança das predições para alertar quando retreinar.
+
+### 📊 ML Engineering
+- **StandardScaler Persistente** — normalização adequada de features (sem data leakage).
+- **Walk-Forward Validation** — backtest com retreinamento em janela rolante (robustez acadêmica).
+- **SHAP Explainability** — interpretabilidade do modelo (feature importance global/local).
+- **Calibration Curve** — verifica se confiança preditiva está bem calibrada.
+- **Model Comparison** — framework para comparar RF vs XGBoost vs LSTM.
+
+### 🧪 Testes
+- **Testes Unitários** (pytest) para feature engineering, position sizing, database.
+- **Testes de API** (Flask test client) para endpoints.
+- **Testes de Integração** com fixtures de dados sintéticos.
+
+### 📈 Dashboard
+- **Card de Performance do Modelo** — acurácia out-of-sample, precision, recall.
+- **Alertas de Drift** — banner amarelo quando confiança cai.
+- **API `/api/charts`** agora inclui `ml_metrics` no JSON.
+
 ## 🛠️ Arquitetura do Código
 
 - `src/data_ingestion.py`: Ingestão de dados históricos OHLCV via Alpaca API.
 - `src/feature_engineering.py`: Criação de indicadores técnicos usando `ta-lib`.
-- `src/model_training.py`: Pipeline de treinamento do modelo Random Forest.
+- `src/model_training.py`: Pipeline de treinamento com normalização e scaler.
 - `src/sentiment_analysis.py`: Integração com LLM para análise qualitativa de notícias.
 - `src/trading_bot_multi.py`: Robô principal que executa a lógica de trade 24/7.
-- `src/backtest_dynamic.py`: Script para simulação da curva de capital com gestão de risco dinâmica.
-- `presentation.html`: Apresentação completa sobre o funcionamento técnico do projeto.
+- `src/backtest_dynamic.py`: Simulação da curva de capital com gestão de risco dinâmica.
+- `src/plot_ml_metrics.py`: Gera SHAP, confusion matrix, calibration curve.
+- `src/compare_models.py`: compara RF, XGBoost, LSTM.
+- `src/config.py`: Configuração centralizada com Pydantic.
 
 ## 📊 Como Rodar
 
@@ -41,14 +68,54 @@ Integração com o modelo LLM **`google/gemini-2.5-flash-lite` (via OpenRouter)*
 2. **Configurar Credenciais:**
    Renomeie o `.env.example` para `.env` e insira suas chaves da Alpaca e OpenRouter.
 
-3. **Executar o Bot (Live/Paper Trading):**
+3. **Treinar Modelo (inicial):**
+   ```bash
+   python src/model_training.py
+   # Isso gera: models/rf_model.pkl, models/scaler.pkl, models/model_features.pkl
+   ```
+
+4. **Gerar Métricas de ML (SHAP, matriz de confusão):**
+   ```bash
+   python src/plot_ml_metrics.py
+   ```
+
+5. **Executar Backtest:**
+   ```bash
+   python src/backtest_dynamic.py              # single-split
+   python src/backtest_dynamic.py --walkforward  # walk-forward
+   ```
+
+6. **Comparar Modelos (opcional):**
+   ```bash
+   python src/compare_models.py   # Requer xgboost e torch instalados
+   ```
+
+7. **Executar o Bot (Live/Paper Trading):**
    ```bash
    python src/main.py
    ```
 
-4. **Visualizar a Apresentação:**
-   Abra o arquivo `presentation.html` em seu navegador.
+8. **Visualizar a Dashboard:**
+   Abra `http://localhost:5000` no navegador.
 
----
-**Autores:** Raphael Malburg, Vasco, André Neves e Beatriz Ferreira
-**Contexto:** Projeto Final de Engenharia de Software e IA (Março 2026)
+## 🧪 Testes
+
+```bash
+pytest tests/ -v
+```
+
+Cobertura atual:
+- `test_feature_engineering.py` — 6 testes (indicadores, alvo, normalização)
+- `test_database.py` — 4 testes (ledger, estatísticas, drift)
+- `test_api.py` — 10 testes (endpoints Flask)
+
+## 📚 Documentação
+
+- `DOCUMENTACAO_TECNICA.md` — fundamentação científica.
+- `presentation.html` — slides do projeto.
+- `methodology.html` — pipeline detalhado (acessível via `/methodology`).
+
+## ⚠️ Disclaimer
+
+**Projeto acadêmico** — desenvolvido para avaliação de Engenharia de Software e IA (Março 2026).
+Não é recomendação de investimento. Paper trading only.

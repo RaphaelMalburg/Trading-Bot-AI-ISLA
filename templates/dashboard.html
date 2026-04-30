@@ -182,6 +182,42 @@
     </div>
 </div>
 
+<!-- Model Performance Card (New) -->
+<div class="card">
+    <h2>Model Performance</h2>
+    <div class="prediction-grid">
+        <div class="pred-item">
+            <div class="label">Current Confidence</div>
+            <div class="value">{{ "%.1f"|format((run.confidence|default(0)) * 100) }}%</div>
+            <div class="context">Threshold: {{ "%.0f"|format(CONFIDENCE_THRESHOLD * 100) }}%</div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Sentiment Score</div>
+            <div class="value {{ 'positive' if (run.sentiment_score|default(0)) > 0.2 else 'negative' if (run.sentiment_score|default(0)) < -0.2 else 'neutral-signal' }}">
+                {{ "%+.2f"|format(run.sentiment_score|default(0)) }}
+            </div>
+            <div class="context">Floor: {{ "%.1f"|format(SENTIMENT_FLOOR) }}</div>
+        </div>
+        {% if run.drift_metrics %}
+        <div class="pred-item">
+            <div class="label">Recent Avg Confidence</div>
+            <div class="value {{ 'buy-signal' if (run.drift_metrics.avg_confidence|default(0)) >= CONFIDENCE_THRESHOLD else 'sell-signal' }}">
+                {{ "%.1f"|format((run.drift_metrics.avg_confidence|default(0)) * 100) }}%
+            </div>
+            <div class="context">Last {{ run.drift_metrics.recent_runs|default(0) }} runs</div>
+        </div>
+        {% endif %}
+        <div class="pred-item">
+            <div class="label">Risk Parameters</div>
+            <div class="value neutral-signal" style="font-size: 14px; line-height: 1.4;">
+                SL: {{ "%.1f"|format(SL_ATR_MULT) }}× ATR<br>
+                TP: {{ "%.1f"|format(TP_ATR_MULT) }}× ATR<br>
+                Max Risk: {{ "%.0f"|format(MAX_RISK_PER_TRADE * 100) }}%
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Summary Statistics -->
 {% if stats_today or stats_overall %}
 <div class="summary-grid">
@@ -261,6 +297,23 @@
         </div>
         {% endfor %}
     </div>
+
+    <!-- Drift Warning Banner -->
+    {% if run.drift_warning %}
+    <div class="alert-box alert-warning">
+        ⚠️ Model Drift Detected: Confidence levels below threshold. Consider retraining.
+        {% if run.drift_metrics %}
+            <br><small>Avg Confidence: {{ "%.2f"|format(run.drift_metrics.avg_confidence|default(0)) }} | Recent Runs: {{ run.drift_metrics.recent_runs|default(0) }}</small>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Circuit Breaker Banner -->
+    {% if run.circuit_breaker and run.circuit_breaker.halt %}
+    <div class="alert-box" style="background: #b71c1c;">
+        🛑 Trading Halted: {{ run.circuit_breaker.reason }}
+    </div>
+    {% endif %}
 
     {% if run.action == 'ORDER_ERROR' and run.error %}
     <div class="alert-box alert-warning">
@@ -407,6 +460,46 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Model Performance Card -->
+<div class="card">
+    <h2>Model Performance</h2>
+    <div class="prediction-grid">
+        <div class="pred-item">
+            <div class="label">Model Confidence</div>
+            <div class="value {{ 'buy-signal' if (run.confidence|default(0)) >= CONFIDENCE_THRESHOLD else 'neutral-signal' }}">
+                {{ "%.1f"|format((run.confidence|default(0)) * 100) }}%
+            </div>
+            <div class="context">Threshold: {{ "%.0f"|format(CONFIDENCE_THRESHOLD * 100) }}%</div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Sentiment Score</div>
+            <div class="value {% if (run.sentiment_score|default(0)) > 0.2 %}buy-signal{% elif (run.sentiment_score|default(0)) < -0.2 %}sell-signal{% else %}neutral-signal{% endif %}">
+                {{ "%+.2f"|format(run.sentiment_score|default(0)) }}
+            </div>
+            <div class="context">Floor: {{ "%.1f"|format(SENTIMENT_FLOOR) }}</div>
+        </div>
+        {% if ml_metrics %}
+        <div class="pred-item">
+            <div class="label">Test Accuracy</div>
+            <div class="value">{{ "%.1f"|format(ml_metrics.accuracy * 100) }}%</div>
+            <div class="context">Out-of-Sample</div>
+        </div>
+        <div class="pred-item">
+            <div class="label">Precision (UP)</div>
+            <div class="value">{{ "%.2f"|format(ml_metrics.precision_up) }}</div>
+            <div class="context">Of predicted ups, correct</div>
+        </div>
+        {% endif %}
+        {% if run.drift_warning %}
+        <div class="pred-item">
+            <div class="label" style="color: #f85149;">⚠ Drift Alert</div>
+            <div class="value sell-signal">{{ "%.1f"|format((run.drift_metrics.avg_confidence|default(0)) * 100) }}%</div>
+            <div class="context">Recent avg confidence dropped</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
 
 <!-- Active Positions -->
 <div class="card" id="active-positions-card" style="display: {{ 'block' if active_positions else 'none' }}">
