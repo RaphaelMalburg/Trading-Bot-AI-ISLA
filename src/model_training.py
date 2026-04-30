@@ -107,13 +107,18 @@ def prepare_features(
         feature_cols: List of feature column names
         scaler: Fitted StandardScaler (or None if fit_scaler=False)
     """
-    # Define base feature columns
+    # Define base feature columns — must match models/model_features.pkl exactly
     feature_cols = [
         "rsi_14",
         "stoch_k",
         "macd",
         "macd_signal",
         "macd_diff",
+        "ema_20",
+        "ema_50",
+        "ema_200",
+        "bb_high",
+        "bb_low",
         "bb_width",
         "atr_14",
         "obv",
@@ -130,16 +135,18 @@ def prepare_features(
     # Drop rows with NaN (from rolling calculations)
     df_clean = df.dropna(subset=feature_cols + ["target"]).copy()
 
-    X = df_clean[feature_cols].values
+    X_df = df_clean[feature_cols]  # keep as DataFrame so scaler stores feature names
     y = df_clean["target"].values
 
     if fit_scaler:
         scaler = StandardScaler()
-        X = scaler.fit_transform(X)
+        X = scaler.fit_transform(X_df)
         logger.info("Fitted new StandardScaler on %d features", len(feature_cols))
     elif scaler is not None:
-        X = scaler.transform(X)
+        X = scaler.transform(X_df)
         logger.info("Applied existing StandardScaler")
+    else:
+        X = X_df.values
 
     return X, y, feature_cols, scaler
 

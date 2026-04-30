@@ -40,6 +40,7 @@ models/*
 !models/rf_model.pkl
 !models/model_features.pkl
 !models/feature_names.pkl
+!models/scaler.pkl
 *.h5
 *.csv
 logs/

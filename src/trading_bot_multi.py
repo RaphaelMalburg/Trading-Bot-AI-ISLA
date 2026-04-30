@@ -17,7 +17,7 @@ import math
 import logging
 import signal
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import TypedDict, Optional, List, Dict, Any
 from dotenv import load_dotenv
 
@@ -42,6 +42,7 @@ from alpaca.data.timeframe import TimeFrame
 
 from src.sentiment_analysis import analyze_sentiment
 from src.config import get_settings
+from src.model_training import add_technical_indicators as _mt_add_indicators
 from ta.momentum import RSIIndicator
 from ta.trend import MACD, EMAIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
@@ -176,7 +177,7 @@ def get_latest_data(
     Returns:
         DataFrame with columns: timestamp, open, high, low, close, volume
     """
-    now = datetime.now(pytz.UTC)
+    now = datetime.now(timezone.utc)
     start = now - timedelta(days=lookback_days)
     req = CryptoBarsRequest(
         symbol_or_symbols=[symbol], timeframe=TIMEFRAME, start=start, end=now
@@ -308,11 +309,11 @@ def calculate_position_size(
     risk_amount = capital * MAX_RISK_PER_TRADE
     ideal_position_value = risk_amount / stop_pct
 
-    # Apply exposure limits
-    max_pos = capital * MAX_TOTAL_EXPOSURE
+    # Apply exposure limits — 2 % safety buffer covers price slippage between sizing and fill
+    max_pos = capital * MAX_TOTAL_EXPOSURE * 0.98
     if open_positions_val > 0:
         max_pos = min(
-            max_pos, capital * (MAX_TOTAL_EXPOSURE - (open_positions_val / capital))
+            max_pos, capital * (MAX_TOTAL_EXPOSURE - (open_positions_val / capital)) * 0.98
         )
 
     min_pos = capital * 0.05  # Minimum 5% position
@@ -459,7 +460,7 @@ def trade_logic_multi() -> dict:
             _load_ml_artifacts()
         except Exception as e:
             return {
-                "timestamp": datetime.now(pytz.UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "steps": [],
                 "error": f"Failed to load model: {e}",
                 "action": "ERROR",
@@ -467,7 +468,7 @@ def trade_logic_multi() -> dict:
 
     # Initialize result
     result = {
-        "timestamp": datetime.now(pytz.UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "steps": [],
         "error": None,
         "prediction": 0,
@@ -575,23 +576,30 @@ def trade_logic_multi() -> dict:
     t0 = time.time()
     logger.info("Computing features...")
     try:
-        # Process BTC data only (single-asset version)
+        # Process BTC data for dashboard indicators (existing column names)
         df_full = process_single_asset(df_btc, "btc")
         df_full.columns = [c.replace("btc_", "") for c in df_full.columns]
 
-        current_state = df_full.iloc[[-1]].copy()
-        current_atr = float(current_state["atr"].values[0])
+        # --- ML Feature computation (matches model_training.py pipeline exactly) ---
+        df_feat = _mt_add_indicators(df_btc.copy())
+        df_feat["dist_ema_20"] = (df_feat["close"] - df_feat["ema_20"]) / df_feat["close"]
+        df_feat["dist_ema_50"] = (df_feat["close"] - df_feat["ema_50"]) / df_feat["close"]
+        df_feat["dist_ema_200"] = (df_feat["close"] - df_feat["ema_200"]) / df_feat["close"]
 
-        # Build feature vector in same order as training
-        feature_values = []
+        # Drop NaN on feature columns only (NOT target, so latest candle is kept)
+        df_feat_clean = df_feat.dropna(subset=_feature_cols)
+        if df_feat_clean.empty:
+            raise ValueError("No valid rows after indicator computation")
+        current_state = df_feat_clean.iloc[-1]
+        current_atr = float(current_state.get("atr_14", 1.0))
+
+        # Build named DataFrame to avoid sklearn feature-name warnings
         for col in _feature_cols:
-            if col in current_state.columns:
-                feature_values.append(float(current_state[col].values[0]))
-            else:
+            if col not in current_state.index:
                 logger.warning("Feature %s missing, defaulting to 0", col)
-                feature_values.append(0.0)
-
-        X_latest = np.array(feature_values).reshape(1, -1)
+        X_latest = pd.DataFrame(
+            [{col: float(current_state.get(col, 0.0)) for col in _feature_cols}]
+        )
 
         # Apply scaler if available
         if _scaler is not None:
