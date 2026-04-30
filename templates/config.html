@@ -1,0 +1,136 @@
+{% extends "_base.html" %}
+
+{% block title %}Config — ML Trading Bot{% endblock %}
+{% block subtitle %}Config{% endblock %}
+{% set active = 'config' %}
+
+{% block extra_css %}
+.config-table { width: 100%; }
+.config-table th, .config-table td { padding: 12px 8px; }
+.config-table .k { color: #8b949e; width: 35%; }
+.config-table .v { color: #f0f6fc; font-weight: 600; }
+.config-table .desc { color: #8b949e; font-size: 12px; }
+
+.feature-pill {
+    display: inline-block;
+    background: #161b22;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin: 3px;
+    color: #c9d1d9;
+}
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>Strategy Parameters</h2>
+    <p class="muted">Read-only view of the values currently in effect. Override these via environment variables before restarting the bot.</p>
+    <table class="config-table">
+        <tr>
+            <td class="k">Symbol</td>
+            <td class="v">{{ symbol }}</td>
+            <td class="desc">Asset traded; ETH is referenced for cross-asset features but not traded.</td>
+        </tr>
+        <tr>
+            <td class="k">Confidence threshold</td>
+            <td class="v">{{ "%.2f"|format(confidence_threshold) }} ({{ "%.0f"|format(confidence_threshold * 100) }}%)</td>
+            <td class="desc">Minimum RF model confidence to consider a BUY.</td>
+        </tr>
+        <tr>
+            <td class="k">Sentiment floor</td>
+            <td class="v">{{ "%.2f"|format(sentiment_floor) }}</td>
+            <td class="desc">Trades are vetoed if Gemini sentiment is below this.</td>
+        </tr>
+        <tr>
+            <td class="k">SL × ATR</td>
+            <td class="v">{{ sl_atr_mult }}</td>
+            <td class="desc">Stop-loss distance: <code>entry − ATR × {{ sl_atr_mult }}</code>.</td>
+        </tr>
+        <tr>
+            <td class="k">TP × ATR</td>
+            <td class="v">{{ tp_atr_mult }}</td>
+            <td class="desc">Take-profit target: <code>entry + ATR × {{ tp_atr_mult }}</code>.</td>
+        </tr>
+        <tr>
+            <td class="k">SL limit slippage</td>
+            <td class="v">{{ "%.3f"|format(sl_slippage) }}</td>
+            <td class="desc">Slack below stop_price for stop-limit fill price.</td>
+        </tr>
+        <tr>
+            <td class="k">Max risk per trade</td>
+            <td class="v">{{ "%.0f"|format(max_risk * 100) }}%</td>
+            <td class="desc">Capital fraction at risk if the SL hits exactly.</td>
+        </tr>
+        <tr>
+            <td class="k">TP watchdog interval</td>
+            <td class="v">{{ tp_watchdog_interval }}s</td>
+            <td class="desc">How often the soft-TP watcher checks the live price.</td>
+        </tr>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Model</h2>
+    {% if model_info.exists %}
+    <table class="config-table">
+        <tr>
+            <td class="k">Model file</td>
+            <td class="v">models/rf_model.pkl</td>
+        </tr>
+        <tr>
+            <td class="k">File size</td>
+            <td class="v">{{ model_info.size_mb }} MB</td>
+        </tr>
+        <tr>
+            <td class="k">Last modified</td>
+            <td class="v">{{ model_info.modified[:19] }} UTC</td>
+        </tr>
+        <tr>
+            <td class="k">Algorithm</td>
+            <td class="v">Random Forest (100 trees, depth 10)</td>
+        </tr>
+        <tr>
+            <td class="k">Validation</td>
+            <td class="v">Walk-forward, 80% train / 20% test</td>
+        </tr>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <span class="em-icon">⚠️</span>
+        Model file not found. Run <code>python -m src.model_training</code> to generate one.
+    </div>
+    {% endif %}
+</div>
+
+{% if features %}
+<div class="card">
+    <h2>Training Features ({{ features|length }})</h2>
+    <p class="muted">The exact ordered feature list the model expects at inference time:</p>
+    <div style="margin-top: 12px;">
+        {% for f in features %}
+            <span class="feature-pill">{{ f }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Environment Variables</h2>
+    <p class="muted">Names the bot reads at startup; set in <code>.env</code> locally or as Railway service variables in production.</p>
+    <table class="config-table">
+        <tr><td class="k"><code>ALPACA_API_KEY</code></td><td class="desc">Alpaca paper-trading key.</td></tr>
+        <tr><td class="k"><code>ALPACA_SECRET_KEY</code></td><td class="desc">Alpaca paper-trading secret.</td></tr>
+        <tr><td class="k"><code>OPENROUTER_API_KEY</code></td><td class="desc">OpenRouter key for Gemini sentiment.</td></tr>
+        <tr><td class="k"><code>OPENROUTER_MODEL</code></td><td class="desc">Defaults to <code>google/gemini-2.5-flash-lite</code>.</td></tr>
+        <tr><td class="k"><code>CONFIDENCE_THRESHOLD</code></td><td class="desc">Defaults to 0.55.</td></tr>
+        <tr><td class="k"><code>SENTIMENT_FLOOR</code></td><td class="desc">Defaults to -0.5.</td></tr>
+        <tr><td class="k"><code>SL_ATR_MULT</code></td><td class="desc">Defaults to 1.0.</td></tr>
+        <tr><td class="k"><code>TP_ATR_MULT</code></td><td class="desc">Defaults to 2.0.</td></tr>
+        <tr><td class="k"><code>MAX_RISK_PER_TRADE</code></td><td class="desc">Defaults to 0.05 (5%).</td></tr>
+        <tr><td class="k"><code>TP_WATCHDOG_INTERVAL_S</code></td><td class="desc">Defaults to 60.</td></tr>
+    </table>
+</div>
+
+{% endblock %}

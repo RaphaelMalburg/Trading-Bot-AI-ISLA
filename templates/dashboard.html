@@ -1,337 +1,158 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ML Trading Bot - Dashboard</title>
-    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #010409;
-            color: #c9d1d9;
-            margin: 0;
-            padding: 20px;
-            line-height: 1.5;
-        }
+{% extends "_base.html" %}
 
-        .container { max-width: 1400px; margin: 0 auto; }
+{% block title %}Dashboard — ML Trading Bot{% endblock %}
+{% block subtitle %}Dashboard{% endblock %}
+{% set active = 'dashboard' %}
 
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #30363d;
-        }
-        header h1 { font-size: 20px; font-weight: 600; color: #f0f6fc; margin: 0; }
-        .badges span {
-            background: #238636;
-            color: #fff;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-block;
-            margin-left: 8px;
-        }
+{% block head_extra %}
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+{% endblock %}
 
-        .badge-live { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; border: 1px solid #3fb950 !important; animation: blink 2s infinite; }
-        @keyframes blink { 
-            0% { opacity: 1; } 
-            50% { opacity: 0.4; } 
-            100% { opacity: 1; } 
-        }
+{% block extra_css %}
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+}
+.summary-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+}
+.summary-card h3 {
+    font-size: 12px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 13px;
+}
+.summary-row:last-child { border-bottom: none; }
+.summary-label { color: #8b949e; }
+.summary-value { color: #c9d1d9; font-weight: 600; }
 
-        .kill-switch-btn {
-            background: #b71c1c;
-            color: #ffcdd2;
-            border: 1px solid #ff5252;
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-left: 12px;
-            transition: all 0.2s;
-        }
-        .kill-switch-btn:hover {
-            background: #d32f2f;
-            box-shadow: 0 0 10px rgba(255, 82, 82, 0.5);
-        }
+#chart-container, #equity-chart-container {
+    width: 100%;
+    background: #0d1117;
+    border-radius: 8px;
+    overflow: hidden;
+}
+#chart-container { height: 900px; }
 
-        /* Toasts */
-        #toast-container {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .toast {
-            background: #0d1117;
-            border-left: 4px solid #3fb950;
-            color: #c9d1d9;
-            padding: 16px 20px;
-            border-radius: 4px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            font-size: 14px;
-            opacity: 0;
-            transform: translateX(100%);
-            transition: all 0.3s ease-in-out;
-        }
-        .toast.show {
-            opacity: 1;
-            transform: translateX(0);
-        }
-        .toast.error { border-left-color: #f85149; }
+.pipeline-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.step-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+.step-ok { background: rgba(35, 134, 54, 0.1); color: #3fb950; border-color: rgba(63, 185, 80, 0.4); }
+.step-error { background: rgba(248, 81, 73, 0.1); color: #f85149; border-color: rgba(248, 81, 73, 0.4); }
 
-        /* Top stats bar */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-        .stat-card {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 16px;
-        }
-        .stat-value { font-size: 22px; font-weight: 600; color: #f0f6fc; }
-        .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; margin-top: 4px; }
-        .positive { color: #3fb950; }
-        .negative { color: #f85149; }
+.alert-box {
+    background: #b71c1c;
+    color: #ffcdd2;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+.alert-warning { background: #5c2c00; color: #ffe0b2; }
 
-        /* Summary statistics */
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
-        }
-        .summary-card {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 16px;
-        }
-        .summary-card h3 {
-            font-size: 12px;
-            color: #8b949e;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 12px;
-        }
-        .summary-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #21262d;
-            font-size: 13px;
-        }
-        .summary-row:last-child { border-bottom: none; }
-        .summary-label { color: #8b949e; }
-        .summary-value { color: #c9d1d9; font-weight: 600; }
+.prediction-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+@media (max-width: 400px) {
+    .prediction-grid { grid-template-columns: 1fr; }
+}
+.pred-item { padding: 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
+.pred-item .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.pred-item .value { font-size: 20px; font-weight: 600; margin-top: 8px; color: #f0f6fc; }
+.pred-item .context { font-size: 11px; color: #8b949e; margin-top: 4px; }
 
-        /* Cards */
-        .card {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 24px;
-        }
-        .card h2 {
-            font-size: 14px;
-            color: #8b949e;
-            margin-bottom: 16px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
+.headlines { list-style: none; padding: 0; }
+.headlines li {
+    padding: 10px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 13px;
+}
+.headlines li:last-child { border-bottom: none; }
 
-        #chart-container {
-            width: 100%;
-            height: 900px;
-            background: #0d1117;
-        }
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+}
+.feature-item {
+    padding: 10px 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    font-size: 12px;
+}
+.feature-item .label { color: #8b949e; }
+.feature-item .value { color: #f0f6fc; font-weight: 600; font-size: 16px; display: block; margin-top: 4px; }
+.feature-item .context { color: #8b949e; font-size: 10px; margin-top: 2px; display: block; }
 
-        /* Pipeline steps */
-        .pipeline-steps {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
-        .step-badge {
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            border: 1px solid transparent;
-        }
-        .step-ok { background: rgba(35, 134, 54, 0.1); color: #3fb950; border-color: rgba(63, 185, 80, 0.4); }
-        .step-error { background: rgba(248, 81, 73, 0.1); color: #f85149; border-color: rgba(248, 81, 73, 0.4); }
+.waiting-message {
+    text-align: center;
+    padding: 60px 20px;
+    color: #8b949e;
+    font-size: 16px;
+}
+.waiting-message .spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid #21262d;
+    border-top-color: #3fb950;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 12px;
+    vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Alert box */
-        .alert-box {
-            background: #b71c1c;
-            color: #ffcdd2;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 13px;
-        }
-        .alert-warning { background: #e65100; color: #ffe0b2; }
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.section-header h2 { margin: 0; }
+{% endblock %}
 
-        /* Prediction display */
-        .prediction-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-        }
-        .pred-item { padding: 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
-        .pred-item .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
-        .pred-item .value { font-size: 20px; font-weight: 600; margin-top: 8px; color: #f0f6fc; }
-        .pred-item .context { font-size: 11px; color: #8b949e; margin-top: 4px; }
-        .buy-signal { color: #3fb950 !important; }
-        .sell-signal { color: #f85149 !important; }
-        .neutral-signal { color: #d29922 !important; }
+{% block badges %}
+<span class="last-updated" id="last-updated">Last updated · just now</span>
+<span class="badge-live">● LIVE</span>
+<span>H1</span>
+<span>PAPER</span>
+<button id="btn-kill-switch" onclick="activateKillSwitch()" class="btn-danger btn-small">🚨 KILL SWITCH</button>
+{% endblock %}
 
-        /* Headlines */
-        .headlines { list-style: none; padding: 0; }
-        .headlines li {
-            padding: 10px 0;
-            border-bottom: 1px solid #21262d;
-            font-size: 13px;
-            color: #c9d1d9;
-        }
-        .headlines li:last-child { border-bottom: none; }
-
-        /* Features table */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 8px;
-        }
-        .feature-item {
-            padding: 8px 12px;
-            background: #16213e;
-            border-radius: 6px;
-            font-size: 12px;
-        }
-        .feature-item .label { color: #888; }
-        .feature-item .value { color: #fff; font-weight: 600; }
-        .feature-item .context { color: #666; font-size: 10px; margin-top: 2px; }
-
-        /* Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 12px;
-            font-size: 13px;
-        }
-        th {
-            text-align: left;
-            padding: 12px 8px;
-            color: #8b949e;
-            font-weight: 500;
-            border-bottom: 1px solid #30363d;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 0.5px;
-        }
-        td {
-            padding: 12px 8px;
-            border-bottom: 1px solid #21262d;
-            color: #c9d1d9;
-        }
-        tr:hover td { background: #161b22; }
-        .hide-mobile { display: table-cell; }
-
-        /* Chart container */
-        #chart-container { border-radius: 12px; overflow: hidden; }
-
-        footer {
-            text-align: center;
-            color: #555;
-            font-size: 12px;
-            padding: 20px 0;
-        }
-
-        .waiting-message {
-            text-align: center;
-            padding: 60px 20px;
-            color: #888;
-            font-size: 18px;
-        }
-        .waiting-message .spinner {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
-            border: 3px solid #333;
-            border-top-color: #69f0ae;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 12px;
-            vertical-align: middle;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .trade-win { color: #3fb950; font-weight: 600; }
-        .trade-loss { color: #f85149; font-weight: 600; }
-        .trade-pending { color: #ffab40; }
-
-        /* Mobile Responsiveness */
-        @media (max-width: 768px) {
-            .hide-mobile { display: none; }
-            .stats-grid { grid-template-columns: 1fr 1fr; }
-            .summary-grid { grid-template-columns: 1fr; }
-            .prediction-grid { grid-template-columns: 1fr 1fr; }
-            .features-grid { grid-template-columns: 1fr 1fr; }
-            body { padding: 10px; }
-            .card { padding: 12px; }
-            th, td { padding: 8px 6px; font-size: 11px; }
-        }
-        
-        .load-more-btn {
-            background: #21262d;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            margin-top: 20px;
-            width: 100%;
-            font-weight: 600;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-        .load-more-btn:hover { background: #30363d; border-color: #8b949e; }
-    </style>
-</head>
-<body>
-
-<header>
-    <h1>ML Trading Bot Dashboard</h1>
-    <div class="badges">
-        <span class="badge-live" id="live-indicator">● LIVE</span>
-        <span class="badge-h1">H1</span>
-        <span class="badge-paper">PAPER TRADING</span>
-        <button id="btn-kill-switch" onclick="activateKillSwitch()" class="kill-switch-btn">🚨 KILL SWITCH</button>
-    </div>
-</header>
+{% block content %}
 
 {% if not run %}
 <div class="card">
     <div class="waiting-message">
         <span class="spinner"></span>
-        Waiting for first bot run... The bot executes on startup and then every hour.
+        Waiting for first bot run — the bot executes on startup and then every hour.
         <br><small>This page auto-refreshes every 5 minutes.</small>
     </div>
 </div>
@@ -430,7 +251,7 @@
 
 <!-- Current Run Details -->
 <div class="card">
-    <h2>Current Run &mdash; {{ run.timestamp[:19] if run.timestamp else 'N/A' }} UTC</h2>
+    <h2>Current Run &mdash; <span data-iso="{{ run.timestamp }}">{{ run.timestamp[:19] if run.timestamp else 'N/A' }} UTC</span></h2>
 
     <!-- Pipeline Steps -->
     <div class="pipeline-steps">
@@ -462,7 +283,7 @@
             <div class="value {{ 'buy-signal' if run.prediction == 1 else 'neutral-signal' }}">
                 {{ run.prediction_label|default('N/A') }}
             </div>
-            <div class="context">{% if run.prediction == 1 %}Price Up{% else %}Price Down / Flat{% endif %}</div>
+            <div class="context">{% if run.prediction == 1 %}Price up{% else %}Price down or flat{% endif %}</div>
         </div>
         <div class="pred-item">
             <div class="label">Confidence</div>
@@ -513,16 +334,21 @@
 </div>
 
 <!-- Headlines -->
-{% if run.headlines %}
 <div class="card">
     <h2>News Headlines (Sentiment: {{ "%+.2f"|format(run.sentiment_score|default(0)) }})</h2>
+    {% if run.headlines and run.headlines|length > 0 %}
     <ul class="headlines">
         {% for h in run.headlines %}
         <li>{{ h }}</li>
         {% endfor %}
     </ul>
+    {% else %}
+    <div class="empty-state">
+        <span class="em-icon">📰</span>
+        No headlines available for this run yet.
+    </div>
+    {% endif %}
 </div>
-{% endif %}
 
 <!-- Candlestick Chart -->
 <div class="card">
@@ -536,45 +362,45 @@
     <div id="equity-chart-container"></div>
 </div>
 
-<!-- Feature Values with Context -->
+<!-- Feature Values -->
 {% if run.indicators %}
 <div class="card">
     <h2>Current Technical Indicators</h2>
     <div class="features-grid">
         <div class="feature-item">
-            <span class="label">RSI (14):</span><br>
+            <span class="label">RSI (14)</span>
             <span class="value">{{ "%.1f"|format(run.indicators.rsi) }}</span>
             <span class="context">
                 {% if run.indicators.rsi > 70 %}Overbought{% elif run.indicators.rsi < 30 %}Oversold{% else %}Neutral{% endif %}
             </span>
         </div>
         <div class="feature-item">
-            <span class="label">MACD:</span><br>
+            <span class="label">MACD</span>
             <span class="value">{{ "%.2f"|format(run.indicators.macd) }}</span>
             <span class="context">Signal: {{ "%.2f"|format(run.indicators.macd_signal) }}</span>
         </div>
         <div class="feature-item">
-            <span class="label">EMA 20:</span><br>
+            <span class="label">EMA 20</span>
             <span class="value">${{ "%.0f"|format(run.indicators.ema20) }}</span>
             <span class="context">{{ 'Above' if run.btc_close >= run.indicators.ema20 else 'Below' }} current</span>
         </div>
         <div class="feature-item">
-            <span class="label">BB Width:</span><br>
+            <span class="label">BB Width</span>
             <span class="value">{{ "%.4f"|format(run.indicators.bb_width) }}</span>
-            <span class="context">Volatility measure</span>
+            <span class="context">Volatility</span>
         </div>
         <div class="feature-item">
-            <span class="label">ATR (14):</span><br>
+            <span class="label">ATR (14)</span>
             <span class="value">${{ "%.2f"|format(run.indicators.atr) }}</span>
-            <span class="context">Used for position size</span>
+            <span class="context">Used for SL/TP sizing</span>
         </div>
         <div class="feature-item">
-            <span class="label">BB Upper:</span><br>
+            <span class="label">BB Upper</span>
             <span class="value">${{ "%.0f"|format(run.indicators.bb_high) }}</span>
             <span class="context">Resistance</span>
         </div>
         <div class="feature-item">
-            <span class="label">BB Lower:</span><br>
+            <span class="label">BB Lower</span>
             <span class="value">${{ "%.0f"|format(run.indicators.bb_low) }}</span>
             <span class="context">Support</span>
         </div>
@@ -584,8 +410,10 @@
 
 <!-- Active Positions -->
 <div class="card" id="active-positions-card" style="display: {{ 'block' if active_positions else 'none' }}">
-    <h2>Active Positions</h2>
-    <div style="overflow-x: auto;">
+    <div class="section-header">
+        <h2>Active Positions</h2>
+    </div>
+    <div class="table-wrap hint">
     <table>
         <thead>
             <tr>
@@ -593,12 +421,12 @@
                 <th>Side</th>
                 <th>Qty</th>
                 <th>Avg Entry</th>
-                <th>Current Price</th>
-                <th class="hide-mobile">Stop Loss</th>
-                <th class="hide-mobile">Take Profit</th>
-                <th class="hide-mobile">Market Value</th>
-                <th>Unrealized P&L ($)</th>
-                <th class="hide-mobile">Unrealized P&L (%)</th>
+                <th>Current</th>
+                <th>Stop Loss</th>
+                <th>Take Profit</th>
+                <th>Market Value</th>
+                <th>Unreal. P&L ($)</th>
+                <th>Unreal. P&L (%)</th>
             </tr>
         </thead>
         <tbody id="active-positions-body">
@@ -609,17 +437,17 @@
                 <td>{{ "%.4f"|format(pos.qty) }}</td>
                 <td>${{ "%.2f"|format(pos.avg_entry_price) }}</td>
                 <td>${{ "%.2f"|format(pos.current_price) }}</td>
-                <td class="hide-mobile {% if pos.sl_price %}sell-signal{% endif %}">
-                    {% if pos.sl_price %}<strong>${{ "%.2f"|format(pos.sl_price) }}</strong>{% else %}<span style="color:#999">--</span>{% endif %}
+                <td class="{% if pos.sl_price %}sell-signal{% endif %}">
+                    {% if pos.sl_price %}<strong>${{ "%.2f"|format(pos.sl_price) }}</strong>{% else %}<span class="muted">--</span>{% endif %}
                 </td>
-                <td class="hide-mobile {% if pos.tp_price %}buy-signal{% endif %}">
-                    {% if pos.tp_price %}<strong>${{ "%.2f"|format(pos.tp_price) }}</strong>{% else %}<span style="color:#999">--</span>{% endif %}
+                <td class="{% if pos.tp_price %}buy-signal{% endif %}">
+                    {% if pos.tp_price %}<strong>${{ "%.2f"|format(pos.tp_price) }}</strong>{% else %}<span class="muted">--</span>{% endif %}
                 </td>
-                <td class="hide-mobile">${{ "%.2f"|format(pos.market_value) }}</td>
+                <td>${{ "%.2f"|format(pos.market_value) }}</td>
                 <td class="{% if pos.unrealized_pl >= 0 %}trade-win{% else %}trade-loss{% endif %}">
                     {{ "%+.2f"|format(pos.unrealized_pl) }}
                 </td>
-                <td class="hide-mobile {% if pos.unrealized_plpc >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                <td class="{% if pos.unrealized_plpc >= 0 %}trade-win{% else %}trade-loss{% endif %}">
                     {{ "%+.2f"|format(pos.unrealized_plpc) }}%
                 </td>
             </tr>
@@ -631,18 +459,23 @@
 
 <!-- Recent Closed Trades -->
 <div class="card">
-    <h2>Recent Closed Trades</h2>
-    <div style="overflow-x: auto;">
+    <div class="section-header">
+        <h2>Recent Closed Trades</h2>
+        <a href="/api/trades.csv" class="btn btn-small">Export CSV</a>
+    </div>
+
+    {% if closed_trades and closed_trades|length > 0 %}
+    <div class="table-wrap hint">
     <table>
         <thead>
             <tr>
-                <th>Entry Time</th>
+                <th>Entry Time (UTC)</th>
                 <th>Entry Price</th>
                 <th>Exit Price</th>
-                <th class="hide-mobile">Exit Reason</th>
+                <th>Exit Reason</th>
                 <th>P&L ($)</th>
-                <th class="hide-mobile">P&L (%)</th>
-                <th class="hide-mobile">Duration</th>
+                <th>P&L (%)</th>
+                <th>Duration</th>
             </tr>
         </thead>
         <tbody id="trades-body">
@@ -651,27 +484,36 @@
                 <td>{{ trade.entry_time[:16] if trade.entry_time else 'N/A' }}</td>
                 <td>${{ "%.2f"|format(trade.entry_price|default(0)) }}</td>
                 <td>${{ "%.2f"|format(trade.exit_price|default(0)) }}</td>
-                <td class="hide-mobile">{{ trade.exit_reason if trade.exit_reason else '—' }}</td>
+                <td>{{ trade.exit_reason if trade.exit_reason else '—' }}</td>
                 <td class="{% if (trade.pnl_dollars|default(0)) >= 0 %}trade-win{% else %}trade-loss{% endif %}">
                     {{ "%+.2f"|format(trade.pnl_dollars|default(0)) }}
                 </td>
-                <td class="hide-mobile {% if (trade.pnl_percent|default(0)) >= 0 %}trade-win{% else %}trade-loss{% endif %}">
+                <td class="{% if (trade.pnl_percent|default(0)) >= 0 %}trade-win{% else %}trade-loss{% endif %}">
                     {{ "%+.2f"|format(trade.pnl_percent|default(0)) }}%
                 </td>
-                <td class="hide-mobile">{{ "%.1f"|format(trade.duration_hours|default(0)) }}h</td>
+                <td>{{ "%.1f"|format(trade.duration_hours|default(0)) }}h</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
-    <button id="load-more-btn" class="load-more-btn" onclick="loadMoreTrades()">Load More Trades</button>
+    <button id="load-more-btn" class="btn" style="width: 100%; margin-top: 16px;" onclick="loadMoreTrades()">Load More Trades</button>
+    {% else %}
+    <div class="empty-state">
+        <span class="em-icon">📊</span>
+        No closed trades yet — the bot will start trading when confidence ≥ 55% and sentiment ≥ -0.5.
+    </div>
+    {% endif %}
 </div>
 
 <!-- Last 10 Runs -->
 {% if runs|length > 0 %}
 <div class="card">
-    <h2>Last {{ runs|length }} Hourly Runs</h2>
-    <div style="overflow-x: auto;">
+    <div class="section-header">
+        <h2>Last {{ runs|length }} Hourly Runs</h2>
+        <a href="/api/runs.csv" class="btn btn-small">Export CSV</a>
+    </div>
+    <div class="table-wrap hint">
     <table>
         <thead>
             <tr>
@@ -706,62 +548,51 @@
 </div>
 {% endif %}
 
-<!-- Toast Container -->
-<div id="toast-container"></div>
+{% endif %}{# end if run #}
 
-<!-- Plotly chart render -->
+{% endblock %}
+
+{% block scripts %}
 <script>
-    // Toast notification system
-    function showToast(message, type = 'success') {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.innerText = message;
-        container.appendChild(toast);
-        
-        // Trigger reflow for animation
-        setTimeout(() => toast.classList.add('show'), 10);
-        
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
-        }, 5000);
-    }
-
-    // Kill Switch logic
+    // Kill switch
     async function activateKillSwitch() {
-        if(!confirm("⚠️ AVISO: Isso vai cancelar todas as ordens abertas e FECHAR TODAS AS POSIÇÕES a mercado imediatamente. Tem certeza?")) return;
-        
+        if (!confirm("WARNING: This will cancel all open orders and CLOSE ALL POSITIONS at market price immediately. Continue?")) return;
+        const btn = document.getElementById('btn-kill-switch');
+        btn.disabled = true;
+        btn.innerText = 'Closing…';
         try {
             const res = await fetch('/api/kill_switch', { method: 'POST' });
             const data = await res.json();
-            if(res.ok) {
-                showToast("✅ Kill Switch ativado com sucesso. Tudo fechado.", "success");
-                updateCharts(); // Refresh to clear active lines
+            if (res.ok) {
+                showToast("Kill Switch activated. " + (data.message || "All positions closed."), "success");
+                updateCharts();
             } else {
-                showToast("❌ Erro no Kill Switch: " + data.error, "error");
+                showToast("Kill Switch failed: " + (data.error || 'unknown error'), "error");
             }
-        } catch(e) {
-            showToast("❌ Erro de conexão ao ativar Kill Switch", "error");
+        } catch (e) {
+            showToast("Connection error during Kill Switch", "error");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '🚨 KILL SWITCH';
         }
     }
 
-    // Soft-Reload for Charts (AJAX instead of page reload)
+    // Soft chart refresh
     async function updateCharts() {
         try {
             const res = await fetch('/api/charts');
+            if (!res.ok) throw new Error('Chart fetch failed');
             const data = await res.json();
-            
             const chartData = JSON.parse(data.candlestick);
             Plotly.react('chart-container', chartData.data, chartData.layout);
-            
             const equityData = JSON.parse(data.equity);
             Plotly.react('equity-chart-container', equityData.data, equityData.layout);
-        } catch(e) {
-            console.error("Failed to update charts:", e);
+        } catch (e) {
+            showToast("Chart refresh failed — will retry", "warning");
         }
     }
 
+    {% if run %}
     var chartData = {{ chart_json|safe }};
     var equityChartData = {{ equity_chart_json|safe }};
 
@@ -784,21 +615,25 @@
     }
 
     if (equityChartData && equityChartData.data) {
-        Plotly.newPlot('equity-chart-container', equityChartData.data, equityChartData.layout, {responsive: true, displaylogo: false});
+        Plotly.newPlot('equity-chart-container', equityChartData.data, equityChartData.layout, { responsive: true, displaylogo: false });
     }
+    {% endif %}
 
-    // Trade Pagination
+    // Trade pagination
     let tradeOffset = 20;
     async function loadMoreTrades() {
         const btn = document.getElementById('load-more-btn');
-        btn.innerText = 'Loading...';
+        if (!btn) return;
+        const originalText = btn.innerText;
+        btn.innerText = 'Loading…';
         btn.disabled = true;
 
         try {
             const res = await fetch(`/api/trades?offset=${tradeOffset}&limit=20`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
             const trades = await res.json();
-            
-            if (trades.length === 0) {
+
+            if (!Array.isArray(trades) || trades.length === 0) {
                 btn.innerText = 'No more trades';
                 return;
             }
@@ -806,34 +641,40 @@
             const tbody = document.getElementById('trades-body');
             trades.forEach(trade => {
                 const tr = document.createElement('tr');
-                
                 const pnlD = trade.pnl_dollars || 0;
                 const pnlP = trade.pnl_percent || 0;
                 const pnlClass = pnlD >= 0 ? 'trade-win' : 'trade-loss';
                 const pnlSign = pnlD > 0 ? '+' : '';
 
                 tr.innerHTML = `
-                    <td>${trade.entry_time ? trade.entry_time.substring(0,16) : 'N/A'}</td>
+                    <td>${trade.entry_time ? trade.entry_time.substring(0, 16) : 'N/A'}</td>
                     <td>$${(trade.entry_price || 0).toFixed(2)}</td>
                     <td>$${(trade.exit_price || 0).toFixed(2)}</td>
-                    <td class="hide-mobile">${trade.exit_reason || '—'}</td>
+                    <td>${trade.exit_reason || '—'}</td>
                     <td class="${pnlClass}">${pnlSign}${pnlD.toFixed(2)}</td>
-                    <td class="hide-mobile ${pnlClass}">${pnlSign}${pnlP.toFixed(2)}%</td>
-                    <td class="hide-mobile">${(trade.duration_hours || 0).toFixed(1)}h</td>
+                    <td class="${pnlClass}">${pnlSign}${pnlP.toFixed(2)}%</td>
+                    <td>${(trade.duration_hours || 0).toFixed(1)}h</td>
                 `;
                 tbody.appendChild(tr);
             });
 
             tradeOffset += 20;
-            btn.innerText = 'Load More Trades';
+            btn.innerText = originalText;
             btn.disabled = false;
         } catch (e) {
-            console.error('Error loading more trades:', e);
-            btn.innerText = 'Error loading trades';
+            showToast("Failed to load more trades — try again", "error");
+            btn.innerText = originalText;
+            btn.disabled = false;
         }
     }
 
-    // Real-Time Stats Polling (every 5s)
+    // Live stats polling (every 5s)
+    function updateDocTitle(pnl) {
+        const sign = pnl >= 0 ? '🟢' : '🔴';
+        const fmt = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+        document.title = `${sign} $${fmt} — ML Bot`;
+    }
+
     setInterval(async () => {
         try {
             const res = await fetch('/api/live_stats');
@@ -842,20 +683,23 @@
 
             document.getElementById('stat-equity').innerText = `$${data.equity.toFixed(2)}`;
             document.getElementById('stat-bp').innerText = `$${data.buying_power.toFixed(2)}`;
-            
+
             const pnlUsd = document.getElementById('stat-pnl-usd');
             const pnlPct = document.getElementById('stat-pnl-pct');
-            
+
             pnlUsd.innerText = (data.pnl_today > 0 ? '+' : '') + data.pnl_today.toFixed(2);
             pnlUsd.className = `stat-value ${data.pnl_today >= 0 ? 'positive' : 'negative'}`;
-            
+
             pnlPct.innerText = (data.pnl_today_pct > 0 ? '+' : '') + data.pnl_today_pct.toFixed(2) + '%';
             pnlPct.className = `stat-value ${data.pnl_today_pct >= 0 ? 'positive' : 'negative'}`;
 
-            // Update Active Positions
+            updateDocTitle(data.pnl_today);
+            tickLastUpdated('last-updated');
+
+            // Active Positions
             const posCard = document.getElementById('active-positions-card');
             const posBody = document.getElementById('active-positions-body');
-            
+
             if (data.active_positions && data.active_positions.length > 0) {
                 posCard.style.display = 'block';
                 posBody.innerHTML = '';
@@ -867,10 +711,10 @@
 
                     const slCell = pos.sl_price
                         ? `<strong>$${pos.sl_price.toFixed(2)}</strong>`
-                        : '<span style="color:#999">--</span>';
+                        : '<span class="muted">--</span>';
                     const tpCell = pos.tp_price
                         ? `<strong>$${pos.tp_price.toFixed(2)}</strong>`
-                        : '<span style="color:#999">--</span>';
+                        : '<span class="muted">--</span>';
 
                     tr.innerHTML = `
                         <td><strong>${pos.symbol}</strong></td>
@@ -878,11 +722,11 @@
                         <td>${pos.qty.toFixed(6)}</td>
                         <td>$${pos.avg_entry_price.toFixed(2)}</td>
                         <td>$${pos.current_price.toFixed(2)}</td>
-                        <td class="hide-mobile ${pos.sl_price ? 'sell-signal' : ''}">${slCell}</td>
-                        <td class="hide-mobile ${pos.tp_price ? 'buy-signal' : ''}">${tpCell}</td>
-                        <td class="hide-mobile">$${pos.market_value.toFixed(2)}</td>
+                        <td class="${pos.sl_price ? 'sell-signal' : ''}">${slCell}</td>
+                        <td class="${pos.tp_price ? 'buy-signal' : ''}">${tpCell}</td>
+                        <td>$${pos.market_value.toFixed(2)}</td>
                         <td class="${pnlClass}">${pnlSign}${pos.unrealized_pl.toFixed(2)}</td>
-                        <td class="hide-mobile ${pnlClass}">${pnlSign}${pos.unrealized_plpc.toFixed(2)}%</td>
+                        <td class="${pnlClass}">${pnlSign}${pos.unrealized_plpc.toFixed(2)}%</td>
                     `;
                     posBody.appendChild(tr);
                 });
@@ -890,22 +734,14 @@
                 posCard.style.display = 'none';
             }
         } catch (e) {
-            console.error('Error fetching live stats:', e);
+            // Silent — next tick will try again
         }
     }, 5000);
 
-    // Soft Refresh for Chart/Prediction (every 5 min)
-    // This ensures new hourly candles and model predictions appear without page refresh flash
-    setInterval(() => {
-        updateCharts();
-    }, 300000);
+    // Soft chart refresh every 5 minutes
+    setInterval(updateCharts, 300000);
+
+    // Initial last-updated tick
+    tickLastUpdated('last-updated');
 </script>
-
-{% endif %}
-
-<footer>
-    Auto-refreshes seamlessly via AJAX &middot; Paper Trading &middot; ML Trading Bot &middot; SQLite Persistent Storage
-</footer>
-
-</body>
-</html>
+{% endblock %}

@@ -1,12 +1,23 @@
 """
 SQLite database for persistent storage of runs, trades, and statistics.
+
+The bot is the source of truth for the trade ledger:
+- `store_run` is called every cycle by the dashboard background loop.
+- `store_trade` is called the moment a BUY fills (with the originating run_id).
+- `sync_closed_trades_only` is a lightweight incremental sync that only
+  updates open rows when their matching SELL is filled on Alpaca.
+- `sync_trades_from_alpaca` remains as a one-shot full reconciler exposed
+  via /admin/resync. It is no longer called on every dashboard load.
 """
 import sqlite3
 import os
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 import threading
 
 DB_PATH = "data/trading_bot.db"
+
+logger = logging.getLogger(__name__)
 
 # Thread-safe lock for database access
 _db_lock = threading.Lock()
@@ -173,7 +184,7 @@ def close_trade(order_id: str, exit_price: float, exit_time: str, exit_reason: s
                 entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
                 exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
                 duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
-            except:
+            except Exception:
                 duration_hours = 0
 
             # Update trade
@@ -189,6 +200,68 @@ def close_trade(order_id: str, exit_price: float, exit_time: str, exit_reason: s
             ))
             conn.commit()
             return True
+
+
+def mark_all_open_as_exited(exit_price: float, exit_reason: str = "KILL_SWITCH") -> int:
+    """
+    Force-close every open trade row. Used by the kill switch so the dashboard
+    reflects the closure immediately, without waiting for the next Alpaca sync.
+    Returns the number of rows updated.
+    """
+    exit_time = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT order_id, entry_price, entry_time, qty
+                FROM trades
+                WHERE exit_price IS NULL
+            """)
+            rows = cursor.fetchall()
+
+            for order_id, entry_price, entry_time_str, qty in rows:
+                if entry_price is None or qty is None:
+                    continue
+                pnl_dollars = (exit_price - entry_price) * qty
+                pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+                try:
+                    entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
+                    exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                    duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
+                except Exception:
+                    duration_hours = 0
+
+                cursor.execute("""
+                    UPDATE trades SET
+                        exit_price = ?, exit_time = ?, exit_reason = ?,
+                        pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
+                    WHERE order_id = ? AND exit_price IS NULL
+                """, (
+                    exit_price, exit_time, exit_reason,
+                    pnl_dollars, pnl_percent, duration_hours,
+                    order_id,
+                ))
+            conn.commit()
+            return len(rows)
+
+
+def get_last_synced_time() -> str:
+    """
+    Returns the most recent entry_time or exit_time we've seen, ISO format.
+    Used as the `after` watermark for incremental Alpaca sync.
+    """
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT MAX(t) FROM (
+                    SELECT MAX(entry_time) AS t FROM trades
+                    UNION ALL
+                    SELECT MAX(exit_time) AS t FROM trades
+                )
+            """)
+            row = cursor.fetchone()
+            return row[0] if row and row[0] else None
 
 
 def get_open_trades() -> list[dict]:
@@ -306,12 +379,15 @@ def get_statistics() -> dict:
 
 def sync_trades_from_alpaca(trading_client):
     """
-    Sync Alpaca order history into the trades table.
+    Full reconciliation from Alpaca order history.
 
-    The bot uses independent MARKET BUY + STOP SELL + LIMIT SELL orders (Alpaca crypto
-    does not support bracket/OCO), so we cannot rely on `o.legs`. Instead we walk the
-    order history in chronological order and pair each BUY fill with the next SELL
-    fill on the same symbol.
+    The bot uses independent MARKET BUY + STOP-LIMIT SELL + LIMIT SELL orders
+    (Alpaca crypto does not support OCO/bracket), so we cannot rely on `o.legs`.
+    Instead we walk the order history in chronological order and FIFO-pair each
+    BUY fill with the next SELL fill on the same symbol.
+
+    Heavy: pulls up to 500 orders. Use `sync_closed_trades_only` on hot paths.
+    This function is now only called from /admin/resync.
     """
     from alpaca.trading.requests import GetOrdersRequest
     from alpaca.trading.enums import QueryOrderStatus, OrderStatus
@@ -320,7 +396,7 @@ def sync_trades_from_alpaca(trading_client):
     try:
         orders = trading_client.get_orders(req)
     except Exception as e:
-        print(f"Error fetching orders for sync: {e}")
+        logger.error("Error fetching orders for sync: %s", e)
         return
 
     filled_orders = [
@@ -402,6 +478,119 @@ def sync_trades_from_alpaca(trading_client):
             conn.commit()
 
 
+
+
+def sync_closed_trades_only(trading_client) -> int:
+    """
+    Lightweight incremental sync: only updates open DB rows whose matching SELL
+    has filled on Alpaca since the last sync. Does NOT walk the full history.
+
+    Returns the number of trades closed.
+
+    Used on every bot cycle and on `/api/live_stats` polls so the dashboard
+    sees SL/TP exits within seconds instead of waiting for the next /admin/resync.
+    """
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus, OrderStatus
+
+    # Find oldest still-open trade so we don't miss any matching SELL
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MIN(entry_time) FROM trades WHERE exit_price IS NULL")
+            row = cursor.fetchone()
+            oldest_open = row[0] if row else None
+
+    if not oldest_open:
+        return 0  # nothing to close
+
+    try:
+        after_dt = datetime.fromisoformat(oldest_open.replace('Z', '+00:00'))
+    except Exception:
+        after_dt = None
+
+    req = GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=100, after=after_dt)
+    try:
+        orders = trading_client.get_orders(req)
+    except Exception as e:
+        logger.error("Incremental sync: error fetching closed orders: %s", e)
+        return 0
+
+    sells = [
+        o for o in orders
+        if o.filled_at
+        and o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+        and o.side
+        and o.side.name == "SELL"
+    ]
+    sells.sort(key=lambda o: o.filled_at)
+
+    if not sells:
+        return 0
+
+    def classify_exit(order) -> str:
+        type_name = order.order_type.name if order.order_type else ""
+        if type_name == "LIMIT":
+            return "Take Profit"
+        if type_name in ("STOP", "STOP_LIMIT"):
+            return "Stop Loss"
+        return "Closed"
+
+    closed = 0
+    with _db_lock:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            for o in sells:
+                exit_price = float(o.filled_avg_price) if o.filled_avg_price else 0.0
+                if exit_price <= 0:
+                    continue
+                exit_time = o.filled_at.isoformat()
+                exit_reason = classify_exit(o)
+                norm_symbol = o.symbol.replace("/", "").upper()
+
+                # Match the oldest open trade for this symbol (FIFO).
+                # Stored order_ids correspond to BUY orders, but we filter by
+                # JOIN-ish proxy: just take the oldest open row whose entry_time
+                # < SELL.filled_at. (Single-symbol assumption holds for BTC/USD.)
+                cursor.execute("""
+                    SELECT id, order_id, entry_price, entry_time, qty
+                    FROM trades
+                    WHERE exit_price IS NULL AND entry_time <= ?
+                    ORDER BY entry_time ASC
+                    LIMIT 1
+                """, (exit_time,))
+                row = cursor.fetchone()
+                if not row:
+                    continue
+
+                trade_id, entry_order_id, entry_price, entry_time_str, qty = row
+                pnl_dollars = (exit_price - entry_price) * qty
+                pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+                try:
+                    entry_dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
+                    exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                    duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
+                except Exception:
+                    duration_hours = 0
+
+                cursor.execute("""
+                    UPDATE trades SET
+                        exit_price = ?, exit_time = ?, exit_reason = ?,
+                        pnl_dollars = ?, pnl_percent = ?, duration_hours = ?
+                    WHERE id = ? AND exit_price IS NULL
+                """, (
+                    exit_price, exit_time, exit_reason,
+                    pnl_dollars, pnl_percent, duration_hours,
+                    trade_id,
+                ))
+                if cursor.rowcount > 0:
+                    closed += 1
+            conn.commit()
+
+    if closed:
+        logger.info("Incremental sync closed %d trade(s).", closed)
+    return closed
 
 
 def get_todays_statistics() -> dict:

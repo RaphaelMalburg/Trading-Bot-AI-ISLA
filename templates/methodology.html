@@ -1,0 +1,202 @@
+{% extends "_base.html" %}
+
+{% block title %}Methodology — ML Trading Bot{% endblock %}
+{% block subtitle %}Methodology{% endblock %}
+{% set active = 'methodology' %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+{% endblock %}
+
+{% block extra_css %}
+.method-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.method-step {
+    padding: 16px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+}
+.method-step .num {
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    background: #1f6feb;
+    color: #fff;
+    border-radius: 14px;
+    text-align: center;
+    line-height: 28px;
+    font-weight: 600;
+    margin-right: 8px;
+}
+.method-step h3 { display: inline-block; margin: 0 0 8px 0; font-size: 14px; }
+.method-step p { font-size: 13px; color: #8b949e; margin: 6px 0; }
+
+.formula {
+    background: #161b22;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 13px;
+    margin: 8px 0;
+    color: #d29922;
+    overflow-x: auto;
+}
+
+.mermaid-wrap {
+    background: #0d1117;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    overflow-x: auto;
+}
+
+.config-pill {
+    display: inline-block;
+    background: #161b22;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin: 2px 4px;
+}
+.config-pill .k { color: #8b949e; }
+.config-pill .v { color: #f0f6fc; font-weight: 600; }
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>How the Bot Decides to Trade</h2>
+    <p>Each hour, the bot runs a six-step pipeline that ingests market data, computes indicators, asks an ML model for a directional prediction, asks an LLM for a sentiment veto, and — if everything aligns — places an order with explicit stop-loss and take-profit levels.</p>
+
+    <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart LR
+    A[Alpaca H1 Bars<br/>BTC + ETH] --> B[Feature<br/>Engineering]
+    B --> C[Random Forest<br/>predict_proba]
+    D[Latest News] --> E[Gemini Sentiment]
+    C -.confidence.-> F{Decide}
+    E -.score.-> F
+    F -- BUY --> G[Market Order]
+    G --> H[Stop-Limit SL<br/>resting on Alpaca]
+    G --> I[Soft TP watcher<br/>60s polling]
+    F -- FLAT --> J[Close Position +<br/>Cancel SL/TP]
+        </pre>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Pipeline Steps</h2>
+
+    <div class="method-grid">
+        <div class="method-step">
+            <h3><span class="num">1</span>Data Ingestion</h3>
+            <p>Pull last 30 days of hourly OHLCV bars for BTC/USD and ETH/USD from the Alpaca Crypto API.</p>
+            <p class="muted">Re-instantiates the client on each retry to clear stale connections (5 retries, exponential backoff).</p>
+        </div>
+
+        <div class="method-step">
+            <h3><span class="num">2</span>Feature Engineering</h3>
+            <p>Compute technical indicators that the ML model uses as input features.</p>
+            <ul>
+                <li><strong>RSI(14):</strong> momentum / overbought-oversold gauge</li>
+                <li><strong>MACD + signal + diff:</strong> trend-following</li>
+                <li><strong>EMA20 / 50 / 200:</strong> measured as % distance from price</li>
+                <li><strong>Bollinger Bands:</strong> normalized width as volatility proxy</li>
+                <li><strong>ATR(14):</strong> typical candle range — sizes our stop-loss</li>
+                <li><strong>OBV:</strong> volume-flow vs price</li>
+                <li><strong>Lagged returns &amp; RSI</strong> for BTC and ETH (1, 2, 3 hours back)</li>
+            </ul>
+        </div>
+
+        <div class="method-step">
+            <h3><span class="num">3</span>Random Forest Prediction</h3>
+            <p>A scikit-learn <code>RandomForestClassifier</code> (100 trees, max depth 10) predicts whether the next hour's close will be higher (1) or lower/flat (0).</p>
+            <p>Trained on hourly BTC data 2020-2023 with walk-forward validation (first 80% train / last 20% test). The model emits a confidence via <code>predict_proba</code>.</p>
+            <p class="muted">A trade is only considered if confidence &gt; <strong>{{ "%.0f"|format(confidence_threshold * 100) }}%</strong>.</p>
+        </div>
+
+        <div class="method-step">
+            <h3><span class="num">4</span>Sentiment Veto</h3>
+            <p>The latest 5 BTC news headlines are sent to <strong>Gemini 2.5 Flash Lite</strong> (via OpenRouter) with a low-temperature prompt asking for a single float in [-1.0, 1.0].</p>
+            <p>This score acts as a safety filter: even if the ML model is bullish, the trade is vetoed when sentiment falls below <strong>{{ "%.1f"|format(sentiment_floor) }}</strong>. Bearish news overrides bullish models.</p>
+        </div>
+
+        <div class="method-step">
+            <h3><span class="num">5</span>Position Sizing</h3>
+            <p>Risk-budget approach: cap loss to <strong>{{ "%.0f"|format(max_risk * 100) }}%</strong> of capital per trade, then back out the position size that puts the stop exactly at that loss.</p>
+            <div class="formula">
+                stop_pct = (ATR × {{ sl_atr_mult }}) / price<br/>
+                position_value = (capital × {{ "%.2f"|format(max_risk) }}) / stop_pct
+            </div>
+            <p class="muted">Clamped to [5% capital, 95% capital]. Alpaca crypto is cash-only — no leverage above 1×.</p>
+        </div>
+
+        <div class="method-step">
+            <h3><span class="num">6</span>Order Execution</h3>
+            <p>If all checks pass:</p>
+            <ol>
+                <li><strong>Market Buy</strong> — submit and wait for fill.</li>
+                <li><strong>Stop-Limit SELL</strong> at <code>entry − ATR × {{ sl_atr_mult }}</code> with 0.5% slippage allowance, GTC.</li>
+                <li><strong>Take-profit target</strong> at <code>entry + ATR × {{ tp_atr_mult }}</code> — enforced by a 60-second background watcher (Alpaca crypto allows only one resting SELL).</li>
+            </ol>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Why a "Soft" Take-Profit?</h2>
+    <p>Alpaca's crypto API allows only one resting SELL order per position quantity — no OCO, no bracket. We choose to keep the SL on the order book (downside protection is the priority) and enforce TP in code:</p>
+    <ul>
+        <li>The hourly cycle checks if last close ≥ TP target.</li>
+        <li>A dedicated 60-second watchdog thread also checks the live price and closes the position if it crosses TP between cycles.</li>
+        <li>If TP fires, the SL order is cancelled and the position is market-closed.</li>
+    </ul>
+    <p class="muted">Trade-off: a fast intra-minute spike could still be missed, but crossing the TP for a full minute is enough to trigger the watcher.</p>
+</div>
+
+<div class="card">
+    <h2>Trade Ledger</h2>
+    <p>The application maintains its own SQLite ledger as the source of truth — Alpaca is just the broker:</p>
+    <ul>
+        <li>When a BUY fills, the bot writes a row immediately, linked to the <code>run_id</code> that triggered it.</li>
+        <li>An incremental sync runs every cycle, closing rows whose matching SELL has filled on Alpaca.</li>
+        <li>The kill switch closes all open rows on the spot (no waiting for the next sync).</li>
+        <li>Dashboards, stats, and the equity curve all read from this ledger — no Alpaca dependency for historical data.</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Active Configuration</h2>
+    <div>
+        <span class="config-pill"><span class="k">Confidence threshold:</span> <span class="v">{{ "%.0f"|format(confidence_threshold * 100) }}%</span></span>
+        <span class="config-pill"><span class="k">Sentiment floor:</span> <span class="v">{{ "%.1f"|format(sentiment_floor) }}</span></span>
+        <span class="config-pill"><span class="k">SL × ATR:</span> <span class="v">{{ sl_atr_mult }}</span></span>
+        <span class="config-pill"><span class="k">TP × ATR:</span> <span class="v">{{ tp_atr_mult }}</span></span>
+        <span class="config-pill"><span class="k">Max risk per trade:</span> <span class="v">{{ "%.0f"|format(max_risk * 100) }}%</span></span>
+    </div>
+    <p class="muted" style="margin-top: 12px;">All values are loaded from environment variables at startup — see the <a href="/config">Config</a> page for full details.</p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    if (window.mermaid) {
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                primaryColor: '#1f6feb',
+                primaryTextColor: '#f0f6fc',
+                lineColor: '#8b949e',
+                background: '#0d1117',
+            },
+        });
+    }
+</script>
+{% endblock %}

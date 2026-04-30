@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import math
+import logging
 import pandas as pd
 import joblib
 import ta
@@ -12,8 +14,8 @@ import pytz
 sys.path.append(os.getcwd())
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, StopLimitOrderRequest, GetOrdersRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus, QueryOrderStatus
+from alpaca.trading.requests import MarketOrderRequest, StopLimitOrderRequest, LimitOrderRequest, GetOrdersRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus, QueryOrderStatus, OrderType
 from alpaca.data.historical import CryptoHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -27,42 +29,54 @@ load_dotenv()
 API_KEY = os.getenv("ALPACA_API_KEY")
 SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
-# --- Bot Configuration ---
+logger = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r in env, falling back to default %s", name, raw, default)
+        return default
+
+
+# --- Bot Configuration (env-overridable) ---
 SYMBOL_BTC = "BTC/USD"
 SYMBOL_ETH = "ETH/USD"
 TIMEFRAME = TimeFrame.Hour
-SL_ATR_MULT = 1.0
-TP_ATR_MULT = 2.0
-SL_LIMIT_SLIPPAGE = 0.005  # 0.5% slack below stop_price for the stop-limit fill price
-MAX_RISK_PER_TRADE = 0.05
-CONFIDENCE_THRESHOLD = 0.55
-SENTIMENT_FLOOR = -0.5
-FILL_POLL_ATTEMPTS = 10
-FILL_POLL_INTERVAL_S = 1.0
-MODEL_PATH = 'models/rf_model.pkl'
-FEATURES_PATH = 'models/model_features.pkl'
+SL_ATR_MULT = _env_float("SL_ATR_MULT", 1.0)
+TP_ATR_MULT = _env_float("TP_ATR_MULT", 2.0)
+SL_LIMIT_SLIPPAGE = _env_float("SL_LIMIT_SLIPPAGE", 0.005)  # slack below stop_price for stop-limit fill price
+MAX_RISK_PER_TRADE = _env_float("MAX_RISK_PER_TRADE", 0.05)
+CONFIDENCE_THRESHOLD = _env_float("CONFIDENCE_THRESHOLD", 0.55)
+SENTIMENT_FLOOR = _env_float("SENTIMENT_FLOOR", -0.5)
+FILL_POLL_ATTEMPTS = int(_env_float("FILL_POLL_ATTEMPTS", 10))
+FILL_POLL_INTERVAL_S = _env_float("FILL_POLL_INTERVAL_S", 1.0)
+MODEL_PATH = os.getenv("MODEL_PATH", "models/rf_model.pkl")
+FEATURES_PATH = os.getenv("FEATURES_PATH", "models/model_features.pkl")
 
-
-import math
 
 def floor_to_precision(value, precision):
     factor = 10 ** precision
     return math.floor(value * factor) / factor
 
+
 def get_latest_data(symbol, lookback_days=30, max_retries=5):
     now = datetime.now(pytz.UTC)
     start = now - timedelta(days=lookback_days)
     req = CryptoBarsRequest(symbol_or_symbols=[symbol], timeframe=TIMEFRAME, start=start, end=now)
-    
+
     for attempt in range(max_retries):
         try:
-            # Re-instantiate client each time to clear any stale connections
             client = CryptoHistoricalDataClient(api_key=API_KEY, secret_key=SECRET_KEY)
             bars = client.get_crypto_bars(req)
-            
+
             if not bars or bars.df.empty:
                 raise ValueError(f"No data returned for {symbol}")
-                
+
             df = bars.df.reset_index()
             df.columns = [c.lower() for c in df.columns]
 
@@ -71,12 +85,13 @@ def get_latest_data(symbol, lookback_days=30, max_retries=5):
 
             return df
         except Exception as e:
-            wait = (attempt + 1) * 3  # 3s, 6s, 9s, 12s, 15s
+            wait = (attempt + 1) * 3
             if attempt < max_retries - 1:
-                print(f"⚠️ Tentativa {attempt+1}/{max_retries} falhou ({symbol}): {e}. Retentando em {wait}s...")
+                logger.warning("Attempt %d/%d failed for %s: %s. Retrying in %ds...",
+                               attempt + 1, max_retries, symbol, e, wait)
                 time.sleep(wait)
             else:
-                print(f"❌ Todas as {max_retries} tentativas falharam para {symbol}.")
+                logger.error("All %d attempts failed for %s.", max_retries, symbol)
                 raise e
 
 
@@ -84,7 +99,7 @@ def get_latest_news(symbol="BTC", max_retries=3):
     url = "https://data.alpaca.markets/v1beta1/news"
     headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": SECRET_KEY}
     params = {"symbols": symbol, "limit": 5, "include_content": False}
-    
+
     for attempt in range(max_retries):
         try:
             import requests
@@ -92,7 +107,7 @@ def get_latest_news(symbol="BTC", max_retries=3):
             if response.status_code == 200:
                 return [n['headline'] for n in response.json().get('news', [])]
             return []
-        except Exception as e:
+        except Exception:
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
@@ -146,7 +161,6 @@ def prepare_features(df_btc, df_eth):
 
 
 def calculate_position_size(capital, current_price, atr):
-    # Alpaca crypto minimum notional is ~$10; require a small buffer.
     if capital < 11.0:
         return 0, 0
 
@@ -158,18 +172,19 @@ def calculate_position_size(capital, current_price, atr):
     risk_amount = capital * MAX_RISK_PER_TRADE
     position_value = risk_amount / stop_pct
 
-    # Alpaca crypto is cash-only: leverage > 1 is rejected as insufficient buying power.
     max_pos = capital * 0.95
     min_pos = capital * 0.05
     final_pos_value = min(max(position_value, min_pos), max_pos)
     final_pos_value = max(final_pos_value, 11.0)
     final_pos_value = min(final_pos_value, max_pos)
 
-    # Use 6 decimal places for qty to ensure high-priced assets like BTC 
-    # can meet the $10 minimum order size accurately.
-    qty = round(final_pos_value / current_price, 6)
+    # Floor (not round) to 6 decimals so qty * price never exceeds the budget.
+    # round() rounds half-to-even and can push the result one ULP above max_pos,
+    # which would either trip the upper guard below or demand more cash than
+    # Alpaca will fill. Flooring guarantees we stay within budget.
+    qty = floor_to_precision(final_pos_value / current_price, 6)
     if qty * current_price < 10.1:
-        qty = round(10.5 / current_price, 6)
+        qty = floor_to_precision(10.5 / current_price, 6)
     if qty * current_price > max_pos:
         return 0, 0
 
@@ -195,7 +210,7 @@ def cancel_open_orders_for_symbol(trading_client, symbol):
     try:
         open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
     except Exception as e:
-        print(f"Could not list open orders: {e}")
+        logger.warning("Could not list open orders: %s", e)
         return 0
     target = symbol.replace("/", "").upper()
     cancelled = 0
@@ -206,7 +221,7 @@ def cancel_open_orders_for_symbol(trading_client, symbol):
             trading_client.cancel_order_by_id(o.id)
             cancelled += 1
         except Exception as e:
-            print(f"Failed to cancel order {o.id}: {e}")
+            logger.warning("Failed to cancel order %s: %s", o.id, e)
     return cancelled
 
 
@@ -228,7 +243,7 @@ def trade_logic_multi():
         "leverage": 0.0,
     }
 
-    print(f"\n--- Bot Multi-Ativo (BTC+ETH): {datetime.now()} ---")
+    logger.info("--- Multi-asset bot cycle (BTC+ETH): %s ---", datetime.now())
 
     # --- Step 1: Connect to Alpaca ---
     t0 = time.time()
@@ -246,16 +261,16 @@ def trade_logic_multi():
         result["pnl_today"] = pnl
         result["pnl_today_pct"] = pnl_pct
         result["steps"].append({"name": "Connect Alpaca", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print(f"Equity Total: ${equity:.2f}")
+        logger.info("Total equity: $%.2f", equity)
     except Exception as e:
         result["steps"].append({"name": "Connect Alpaca", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
         result["error"] = f"Alpaca connection error: {e}"
-        print(f"Erro ao conectar na Alpaca: {e}")
+        logger.error("Failed to connect to Alpaca: %s", e)
         return result
 
     # --- Step 2: Fetch Market Data ---
     t0 = time.time()
-    print("Baixando dados BTC e ETH...")
+    logger.info("Downloading BTC and ETH bars...")
     try:
         df_btc = get_latest_data(SYMBOL_BTC)
         df_eth = get_latest_data(SYMBOL_ETH)
@@ -269,16 +284,16 @@ def trade_logic_multi():
         result["ohlcv_data"] = chart_df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].to_dict(orient='records')
 
         result["steps"].append({"name": "Fetch Market Data", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print(f"BTC Close: {last_close_btc:.2f}")
+        logger.info("BTC close: %.2f", last_close_btc)
     except Exception as e:
         result["steps"].append({"name": "Fetch Market Data", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
         result["error"] = f"Data fetch error: {e}"
-        print(f"Erro ao baixar dados: {e}")
+        logger.error("Failed to download market data: %s", e)
         return result
 
     # --- Step 3: Calculate Features ---
     t0 = time.time()
-    print("Calculando features...")
+    logger.info("Computing features...")
     try:
         df_full = process_single_asset(df_btc, 'btc')
         df_full.columns = [c.replace('btc_', '') for c in df_full.columns]
@@ -322,56 +337,56 @@ def trade_logic_multi():
         }
 
         result["steps"].append({"name": "Calculate Features", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print(f"ATR Atual (BTC): {current_atr:.2f}")
+        logger.info("Current ATR (BTC): %.2f", current_atr)
     except Exception as e:
         result["steps"].append({"name": "Calculate Features", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
         result["error"] = f"Feature calculation error: {e}"
-        print(f"Erro no processamento de features: {e}")
+        logger.error("Feature calculation failed: %s", e)
         return result
 
     # --- Step 4: Sentiment Analysis ---
     t0 = time.time()
-    print("Analisando Sentimento (Gemini)...")
+    logger.info("Running sentiment analysis (Gemini)...")
     try:
         headlines = get_latest_news("BTC")
         sentiment_score = analyze_sentiment(headlines) if headlines else 0.0
         result["headlines"] = headlines
         result["sentiment_score"] = float(sentiment_score)
         result["steps"].append({"name": "Sentiment Analysis", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print(f"Score de Sentimento: {sentiment_score:.2f}")
+        logger.info("Sentiment score: %.2f", sentiment_score)
     except Exception as e:
         result["steps"].append({"name": "Sentiment Analysis", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
         sentiment_score = 0.0
         result["headlines"] = []
         result["sentiment_score"] = 0.0
-        print(f"Erro no sentimento (usando neutro): {e}")
+        logger.warning("Sentiment failed (defaulting to neutral): %s", e)
 
     # --- Step 5: ML Prediction ---
     t0 = time.time()
-    print("Executando Modelo Preditivo...")
+    logger.info("Running ML prediction...")
     try:
         model = joblib.load(MODEL_PATH)
         prediction = model.predict(X_latest)[0]
         probability = model.predict_proba(X_latest)[0]
-        confianca = probability[prediction]
+        confidence = probability[prediction]
 
         result["prediction"] = int(prediction)
-        result["confidence"] = float(confianca)
+        result["confidence"] = float(confidence)
         result["prediction_label"] = "LONG" if prediction == 1 else "FLAT"
         result["probabilities"] = {"down": float(probability[0]), "up": float(probability[1])}
         result["steps"].append({"name": "ML Prediction", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print(f"Previsao: {'SUBIR (1)' if prediction == 1 else 'CAIR (0)'}")
-        print(f"Confianca: {confianca:.2%}")
+        logger.info("Prediction: %s | confidence: %.2f%%",
+                    "UP (1)" if prediction == 1 else "DOWN (0)", confidence * 100)
     except Exception as e:
         result["steps"].append({"name": "ML Prediction", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
         result["error"] = f"Prediction error: {e}"
-        print(f"Erro na predicao: {e}")
+        logger.error("Prediction failed: %s", e)
         return result
 
     # --- Step 6: Execute Orders ---
     t0 = time.time()
-    if prediction == 1 and confianca > CONFIDENCE_THRESHOLD and sentiment_score >= SENTIMENT_FLOOR:
-        print("SINAL DE COMPRA VALIDADO!")
+    if prediction == 1 and confidence > CONFIDENCE_THRESHOLD and sentiment_score >= SENTIMENT_FLOOR:
+        logger.info("BUY signal validated.")
         try:
             positions = trading_client.get_all_positions()
             btc_pos = next((p for p in positions if p.symbol == "BTC/USD"), None)
@@ -381,9 +396,9 @@ def trade_logic_multi():
                 # so if price has reached our TP target relative to entry, close manually.
                 entry = float(btc_pos.avg_entry_price)
                 tp_target = entry + (current_atr * TP_ATR_MULT)
-                
+
                 current_sl = None
-                
+
                 # Check for existing SL orders
                 try:
                     open_orders = trading_client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[SYMBOL_BTC]))
@@ -391,20 +406,19 @@ def trade_logic_multi():
                         if o.side == OrderSide.SELL and o.order_type in [OrderType.STOP_LIMIT, OrderType.STOP]:
                             current_sl = float(o.stop_price) if o.stop_price else None
                 except Exception as e:
-                    print(f"Erro ao checar ordens abertas: {e}")
+                    logger.warning("Could not check open orders: %s", e)
 
-                # Se nao tiver SL pendente, cria um novo SL de recuperacao (usando StopLimitOrderRequest)
+                # No SL on file: try to attach a recovery SL.
                 if not current_sl:
-                    print("⚠️ Posicao ativa sem Stop Loss detectada. Tentando anexar...")
+                    logger.warning("Active position with no Stop Loss detected. Attempting to attach recovery SL...")
                     try:
                         entry = float(btc_pos.avg_entry_price)
-                        # We don't have the original ATR here, but we can use the current one
                         rec_stop_price = round(entry - (current_atr * SL_ATR_MULT), 2)
                         rec_limit_price = round(rec_stop_price * (1 - SL_LIMIT_SLIPPAGE), 2)
-                        
+
                         # Use actual position qty with safety buffer
                         rec_qty = floor_to_precision(float(btc_pos.qty) * 0.9999, 6)
-                        
+
                         sl_req = StopLimitOrderRequest(
                             symbol=SYMBOL_BTC,
                             qty=rec_qty,
@@ -413,11 +427,11 @@ def trade_logic_multi():
                             limit_price=rec_limit_price,
                             time_in_force=TimeInForce.GTC,
                         )
-                        sl_order = trading_client.submit_order(sl_req)
+                        trading_client.submit_order(sl_req)
                         current_sl = rec_stop_price
-                        print(f"✅ Stop Loss de recuperacao anexado @ ${rec_stop_price:.2f}")
+                        logger.info("Recovery Stop Loss attached @ $%.2f", rec_stop_price)
                     except Exception as e:
-                        print(f"❌ Falha na recuperacao do Stop Loss: {e}")
+                        logger.error("Recovery Stop Loss failed: %s", e)
 
                 if last_close_btc >= tp_target:
                     cancel_open_orders_for_symbol(trading_client, "BTC/USD")
@@ -426,7 +440,7 @@ def trade_logic_multi():
                     result["take_profit"] = float(tp_target)
                     result["stop_loss"] = current_sl
                     result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-                    print(f"Take-profit alcancado (${last_close_btc:.2f} >= ${tp_target:.2f}). Fechando.")
+                    logger.info("Take-profit hit ($%.2f >= $%.2f). Closing.", last_close_btc, tp_target)
                     return result
 
                 result["action"] = "ALREADY_POSITIONED"
@@ -435,14 +449,14 @@ def trade_logic_multi():
                 result["position_qty"] = float(btc_pos.qty)
                 result["leverage"] = (float(btc_pos.qty) * last_close_btc) / capital if capital > 0 else 0
                 result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-                print("Ja existe uma posicao em BTC/USD. Mantendo (SL ativo, TP monitorado).")
+                logger.info("Already positioned in BTC/USD. Holding (SL active, TP monitored).")
                 return result
 
             # No position but maybe stale SELL orders from a manually closed trade are
             # holding qty/buying_power. Clear them so the BUY does not fail.
             orphan = cancel_open_orders_for_symbol(trading_client, "BTC/USD")
             if orphan:
-                print(f"Limpas {orphan} ordens SELL orfas antes de comprar.")
+                logger.info("Cleared %d orphan SELL order(s) before buying.", orphan)
 
             qty, leverage = calculate_position_size(capital, last_close_btc, current_atr)
             result["position_qty"] = float(qty)
@@ -452,10 +466,10 @@ def trade_logic_multi():
                 result["action"] = "INSUFFICIENT_FUNDS"
                 result["error"] = "Not enough buying power to meet minimum order size ($10)."
                 result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
-                print("Buying power insufficient for minimum crypto order. Abortando.")
+                logger.warning("Buying power insufficient for minimum crypto order. Aborting.")
                 return result
 
-            print(f"Enviando ordem de COMPRA: {qty:.4f} BTC @ ~${last_close_btc:.2f}")
+            logger.info("Submitting BUY order: %.4f BTC @ ~$%.2f", qty, last_close_btc)
 
             buy_req = MarketOrderRequest(
                 symbol=SYMBOL_BTC,
@@ -465,7 +479,7 @@ def trade_logic_multi():
             )
             buy_order = trading_client.submit_order(buy_req)
             result["order_id"] = str(buy_order.id)
-            print(f"Ordem BUY enviada. ID: {buy_order.id}")
+            logger.info("BUY order submitted. ID: %s", buy_order.id)
 
             # Wait for fill so we can size SL/TP against the real filled price and qty.
             filled = wait_for_fill(trading_client, buy_order.id)
@@ -473,38 +487,43 @@ def trade_logic_multi():
                 result["action"] = "BUY_ORDER_SENT"
                 result["error"] = f"BUY not filled in time (status={getattr(filled, 'status', None)}). SL/TP skipped."
                 result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
-                print(result["error"])
+                logger.warning(result["error"])
                 return result
 
             entry_price = float(filled.filled_avg_price) if filled.filled_avg_price else last_close_btc
-            
+
             # Fetch the actual position to get the exact quantity available for SELL (accounts for fees)
             actual_pos = None
             try:
                 actual_pos = trading_client.get_open_position(SYMBOL_BTC)
-            except:
-                pass
-            
+            except Exception as e:
+                logger.warning("Could not fetch open position post-fill: %s", e)
+
             filled_qty = float(actual_pos.qty) if actual_pos else (float(filled.filled_qty) if filled.filled_qty else qty)
-            
+
             # Small safety buffer: Alpaca sometimes has tiny rounding differences in 'available'
-            # We use 99.9% of the quantity if it's crypto to avoid "insufficient balance" errors
+            # We use 99.99% of the quantity if it's crypto to avoid "insufficient balance" errors
             sl_qty = filled_qty
-            if "USD" in SYMBOL_BTC: # It's crypto
-                 sl_qty = floor_to_precision(filled_qty * 0.9999, 6)
+            if "USD" in SYMBOL_BTC:  # crypto path
+                sl_qty = floor_to_precision(filled_qty * 0.9999, 6)
 
             stop_price = round(entry_price - (current_atr * SL_ATR_MULT), 2)
             take_profit_price = round(entry_price + (current_atr * TP_ATR_MULT), 2)
             result["stop_loss"] = float(stop_price)
             result["take_profit"] = float(take_profit_price)
+            result["entry_price"] = float(entry_price)
+            result["entry_time"] = filled.filled_at.isoformat() if filled.filled_at else result["timestamp"]
+            result["filled_qty"] = float(filled_qty)
             result["action"] = "BUY_ORDER_SENT"
 
-            print(f"BUY preenchido @ ${entry_price:.2f} (Posicao: {filled_qty} BTC). Configurando SL para {sl_qty}...")
+            logger.info("BUY filled @ $%.2f (position: %s BTC). Configuring SL for %s...",
+                        entry_price, filled_qty, sl_qty)
 
             # Alpaca crypto only allows ONE resting SELL order against the position
             # qty (no OCO/bracket). We pick the SL because downside protection is
-            # the priority. Take-profit is enforced softly: each hourly run checks
-            # whether price >= take_profit_price and closes the position via market.
+            # the priority. Take-profit is enforced softly: each hourly run + a 60s
+            # watchdog thread in app.py check whether price >= take_profit_price
+            # and close the position via market.
             sl_error = None
             try:
                 sl_limit_price = round(stop_price * (1 - SL_LIMIT_SLIPPAGE), 2)
@@ -518,10 +537,11 @@ def trade_logic_multi():
                 )
                 sl_order = trading_client.submit_order(sl_req)
                 result["sl_order_id"] = str(sl_order.id)
-                print(f"Stop Loss trigger=${stop_price:.2f} limit=${sl_limit_price:.2f} | order {sl_order.id}")
+                logger.info("Stop Loss trigger=$%.2f limit=$%.2f | order %s",
+                            stop_price, sl_limit_price, sl_order.id)
             except Exception as e:
                 sl_error = str(e)
-                print(f"Falha ao criar Stop Loss: {e}")
+                logger.error("Failed to create Stop Loss: %s", e)
 
             if sl_error:
                 result["error"] = f"SL: {sl_error}"
@@ -533,22 +553,22 @@ def trade_logic_multi():
             result["action"] = "ORDER_ERROR"
             result["error"] = str(e)
             result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
-            print(f"Erro ao enviar ordem: {e}")
+            logger.error("Failed to submit order: %s", e)
 
     elif prediction == 0:
-        print("Sinal FLAT. Fechando posicao BTC e cancelando SL/TP pendentes...")
+        logger.info("FLAT signal. Closing BTC position and cancelling resting SL/TP orders...")
         try:
             positions = trading_client.get_all_positions()
             has_position = any(p.symbol == "BTC/USD" for p in positions)
 
             cancelled = cancel_open_orders_for_symbol(trading_client, "BTC/USD")
             if cancelled:
-                print(f"Cancelled {cancelled} open SL/TP order(s) for BTC/USD.")
+                logger.info("Cancelled %d open SL/TP order(s) for BTC/USD.", cancelled)
 
             if has_position:
                 trading_client.close_position("BTC/USD")
                 result["action"] = "CLOSE_POSITION"
-                print("Posicao fechada com sucesso.")
+                logger.info("Position closed successfully.")
             else:
                 result["action"] = "NO_POSITION_TO_CLOSE"
 
@@ -557,14 +577,15 @@ def trade_logic_multi():
             result["action"] = "CLOSE_ERROR"
             result["error"] = str(e)
             result["steps"].append({"name": "Execute Order", "status": "error", "duration_ms": int((time.time() - t0) * 1000)})
-            print(f"Erro ao fechar posicoes: {e}")
+            logger.error("Failed to close positions: %s", e)
     else:
         result["action"] = "NO_SIGNAL"
         result["steps"].append({"name": "Execute Order", "status": "ok", "duration_ms": int((time.time() - t0) * 1000)})
-        print("Condicoes nao atendidas para entrada. Aguardando proximo ciclo.")
+        logger.info("Entry conditions not met. Waiting for next cycle.")
 
     return result
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     trade_logic_multi()

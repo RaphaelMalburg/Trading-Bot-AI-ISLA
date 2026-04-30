@@ -50,5 +50,5 @@ Integração com o modelo LLM **`google/gemini-2.5-flash-lite` (via OpenRouter)*
    Abra o arquivo `presentation.html` em seu navegador.
 
 ---
-**Autores:** Raphael Malburg, Vasco e André Neves
+**Autores:** Raphael Malburg, Vasco, André Neves e Beatriz Ferreira
 **Contexto:** Projeto Final de Engenharia de Software e IA (Março 2026)

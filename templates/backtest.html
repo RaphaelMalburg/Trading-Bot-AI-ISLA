@@ -1,0 +1,144 @@
+{% extends "_base.html" %}
+
+{% block title %}Backtest — ML Trading Bot{% endblock %}
+{% block subtitle %}Backtest{% endblock %}
+{% set active = 'backtest' %}
+
+{% block extra_css %}
+.backtest-image {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #30363d;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+.metric-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+}
+.metric-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.metric-card .value {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f0f6fc;
+    margin-top: 6px;
+}
+.metric-card .sub { font-size: 11px; color: #8b949e; margin-top: 4px; }
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>Out-of-Sample Backtest</h2>
+    <p>The strategy was trained on hourly BTC data and validated <strong>walk-forward</strong>: trained on the first 80% of the 2020-2023 window, evaluated on the unseen final 20%. The chart below shows realized equity vs a passive Buy &amp; Hold benchmark.</p>
+
+    {% if not results and not image_url %}
+    <div class="empty-state">
+        <span class="em-icon">📈</span>
+        No backtest results found yet.
+        <div style="margin-top: 16px;">
+            <button class="btn btn-primary" id="run-bt-btn" onclick="runBacktest()">Run backtest now</button>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if results %}
+    <div class="metrics-grid" style="margin-top: 16px;">
+        <div class="metric-card">
+            <div class="label">Strategy return</div>
+            <div class="value {{ 'positive' if (results.total_return|default(0)) >= 0 else 'negative' }}">
+                {{ "%+.2f"|format(results.total_return|default(0)) }}%
+            </div>
+            <div class="sub">Out-of-sample period</div>
+        </div>
+        <div class="metric-card">
+            <div class="label">Buy &amp; Hold benchmark</div>
+            <div class="value {{ 'positive' if (results.buy_hold_return|default(0)) >= 0 else 'negative' }}">
+                {{ "%+.2f"|format(results.buy_hold_return|default(0)) }}%
+            </div>
+            <div class="sub">Same window, no trading logic</div>
+        </div>
+        <div class="metric-card">
+            <div class="label">Win rate</div>
+            <div class="value">{{ "%.1f"|format(results.win_rate|default(0)) }}%</div>
+            <div class="sub">{{ results.total_trades|default(0) }} trades total</div>
+        </div>
+        <div class="metric-card">
+            <div class="label">Max drawdown</div>
+            <div class="value negative">-{{ "%.2f"|format(results.max_drawdown|default(0)) }}%</div>
+            <div class="sub">Worst peak-to-trough</div>
+        </div>
+        {% if results.sharpe is defined %}
+        <div class="metric-card">
+            <div class="label">Sharpe ratio</div>
+            <div class="value">{{ "%.2f"|format(results.sharpe) }}</div>
+            <div class="sub">Higher is better</div>
+        </div>
+        {% endif %}
+        {% if results.avg_win is defined and results.avg_loss is defined %}
+        <div class="metric-card">
+            <div class="label">Avg win / loss</div>
+            <div class="value">
+                <span class="positive">+{{ "%.2f"|format(results.avg_win) }}</span>
+                /
+                <span class="negative">-{{ "%.2f"|format(results.avg_loss|abs) }}</span>
+            </div>
+            <div class="sub">Per trade, in $</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% if image_url %}
+<div class="card">
+    <h2>Equity Curve vs Buy &amp; Hold</h2>
+    <img src="{{ image_url }}" alt="Backtest equity curve" class="backtest-image">
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Notes &amp; Caveats</h2>
+    <ul>
+        <li>Backtest assumes immediate fills at the close price — real-world slippage will reduce returns slightly.</li>
+        <li>Sentiment scores are <em>not</em> backtested — they only veto trades in live mode where headlines are available.</li>
+        <li>Past performance never guarantees future results, especially in crypto.</li>
+        <li>The bot runs on Alpaca <strong>paper trading</strong> by design; this is a university assessment, not a production strategy.</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Re-run the Backtest</h2>
+    <p>Useful when you've retrained the model or changed parameters in <a href="/config">Config</a>.</p>
+    <button class="btn btn-primary" id="run-bt-btn-2" onclick="runBacktest()">Run backtest now</button>
+    <span class="muted" id="bt-status" style="margin-left: 12px;"></span>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function runBacktest() {
+        const buttons = ['run-bt-btn', 'run-bt-btn-2'].map(id => document.getElementById(id)).filter(Boolean);
+        buttons.forEach(b => { b.disabled = true; b.innerText = 'Running…'; });
+        const status = document.getElementById('bt-status');
+        if (status) status.innerText = 'Backtest started in the background.';
+
+        try {
+            const res = await fetch('/api/run_backtest', { method: 'POST' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            showToast('Backtest started — refresh in a few minutes for results.', 'success');
+        } catch (e) {
+            showToast('Failed to start backtest: ' + e.message, 'error');
+        } finally {
+            buttons.forEach(b => { b.disabled = false; b.innerText = 'Run backtest now'; });
+        }
+    }
+</script>
+{% endblock %}
