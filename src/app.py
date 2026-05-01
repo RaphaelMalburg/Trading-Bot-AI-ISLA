@@ -71,16 +71,15 @@ trading_client = (
     TradingClient(API_KEY, SECRET_KEY, paper=True) if API_KEY and SECRET_KEY else None
 )
 
-# Logging configuration
+# Logging configuration — configure root logger so all modules (including
+# trading_bot_multi) emit to stdout in Railway
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
 
 # Flask app
 app = Flask(
