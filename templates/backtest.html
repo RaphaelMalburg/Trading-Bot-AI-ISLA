@@ -1,0 +1,356 @@
+{% extends "_base.html" %}
+{% block title %}Backtest — ISLA Bot{% endblock %}
+
+{% block content %}
+
+<style>
+.info-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(88,166,255,.3);
+  color: #58a6ff;
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+  line-height: 16px;
+  cursor: help;
+  position: relative;
+  margin-left: 4px;
+}
+
+.info-icon:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(88,166,255,.95);
+  color: #0d1117;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: normal;
+  white-space: nowrap;
+  z-index: 1000;
+  border: 1px solid #58a6ff;
+}
+
+.metric-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(48,54,61,.3);
+}
+
+.metric-row:last-child {
+  border-bottom: none;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #8b949e;
+  font-weight: 500;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.metric-value {
+  font-size: 13px;
+  color: #e6edf3;
+  font-weight: 600;
+  font-family: monospace;
+  min-width: 80px;
+  text-align: right;
+}
+
+.card-metrics {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.metrics-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e6edf3;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--green);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.good { color: #3fb950; }
+.warning { color: #d2a520; }
+.bad { color: #f85149; }
+
+.equity-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.equity-img {
+  width: 100%;
+  display: block;
+  background: #0d1117;
+}
+</style>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+  <div>
+    <h2 style="font-size:20px;font-weight:700;margin:0;margin-bottom:4px;">Model Evaluation</h2>
+    <p style="font-size:12px;color:var(--muted);margin:0;">Walk-forward backtest with live model parameters</p>
+  </div>
+  <button class="btn" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.1);"
+    onclick="runBacktest()">↻ Retrain & Backtest</button>
+</div>
+
+{% if results %}
+
+<!-- BACKTEST PERFORMANCE ──────────────────────────────────────────── -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:14px;font-weight:700;color:#e6edf3;margin:0 0 12px;">Strategy Performance</h3>
+
+  <div class="grid-4" style="margin-bottom:16px;">
+    <div class="card-metrics">
+      <div class="metrics-title">Return <span class="info-icon" data-tooltip="Total % gain/loss over backtest period"></span></div>
+      <div class="metric-value {{ 'good' if results.total_return >= 0 else 'bad' }}">
+        {{ "%+.2f"|format(results.total_return) }}%
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">{{ results.period_start }} to {{ results.period_end }}</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Buy &amp; Hold <span class="info-icon" data-tooltip="Passive BTC benchmark return"></span></div>
+      <div class="metric-value {{ 'good' if results.buy_hold_return >= 0 else 'bad' }}">
+        {{ "%+.2f"|format(results.buy_hold_return) }}%
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Passive baseline</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Outperformance <span class="info-icon" data-tooltip="Strategy return minus B&H return"></span></div>
+      <div class="metric-value {{ 'good' if (results.total_return - results.buy_hold_return) >= 0 else 'bad' }}">
+        {{ "%+.2f"|format(results.total_return - results.buy_hold_return) }}%
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Alpha generated</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Sharpe Ratio <span class="info-icon" data-tooltip="Risk-adjusted return (higher is better)"></span></div>
+      <div class="metric-value {{ 'good' if results.sharpe >= 1 else ('warning' if results.sharpe >= 0 else 'bad') }}">
+        {{ "%.3f"|format(results.sharpe) }}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Ann. ({{ timeframe_hours }}H bars)</div>
+    </div>
+  </div>
+
+  <div class="grid-4">
+    <div class="card-metrics">
+      <div class="metrics-title">Max Drawdown <span class="info-icon" data-tooltip="Largest peak-to-trough decline"></span></div>
+      <div class="metric-value bad">{{ "%.2f"|format(results.max_drawdown) }}%</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Peak-to-trough</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Win Rate <span class="info-icon" data-tooltip="% of trades that were profitable"></span></div>
+      <div class="metric-value">{{ "%.1f"|format(results.win_rate) }}%</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">{{ results.total_trades }} trades</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Profit Factor <span class="info-icon" data-tooltip="Gross profit ÷ gross loss (>1 is profitable)"></span></div>
+      <div class="metric-value {{ 'good' if results.profit_factor and results.profit_factor > 1 else 'bad' }}">
+        {{ "%.2f"|format(results.profit_factor or 0) }}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Wins vs losses</div>
+    </div>
+
+    <div class="card-metrics">
+      <div class="metrics-title">Final Capital <span class="info-icon" data-tooltip="Ending account value"></span></div>
+      <div class="metric-value">${{ "%.2f"|format(results.final_capital) }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Started at $100</div>
+    </div>
+  </div>
+</div>
+
+<!-- Equity curve -->
+{% if results.image %}
+<div class="equity-container">
+  <img src="/static/models/backtest_equity.png" alt="Equity Curve" class="equity-img"
+    onerror="this.parentElement.style.display='none'" />
+</div>
+{% endif %}
+
+<!-- TRADE STATISTICS ──────────────────────────────────────────────── -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:14px;font-weight:700;color:#e6edf3;margin:0 0 12px;">Trade Statistics</h3>
+  <div class="grid-4">
+    <div class="card-metrics">
+      <div class="metrics-title">Avg Win <span class="info-icon" data-tooltip="Average $ profit per winning trade"></span></div>
+      <div class="metric-value good">${{ "%.2f"|format(results.avg_win or 0) }}</div>
+    </div>
+    <div class="card-metrics">
+      <div class="metrics-title">Avg Loss <span class="info-icon" data-tooltip="Average $ loss per losing trade"></span></div>
+      <div class="metric-value bad">${{ "%.2f"|format(results.avg_loss or 0) }}</div>
+    </div>
+    <div class="card-metrics">
+      <div class="metrics-title">Risk/Reward <span class="info-icon" data-tooltip="(Avg Win) ÷ (|Avg Loss|)"></span></div>
+      {% set rr_ratio = (results.avg_win / (results.avg_loss * -1)) if (results.avg_loss and results.avg_loss != 0) else 0 %}
+      <div class="metric-value {{ 'good' if rr_ratio > 1 else 'bad' }}">
+        {{ "%.2f"|format(rr_ratio) }}:1
+      </div>
+    </div>
+    <div class="card-metrics">
+      <div class="metrics-title">Total Trades <span class="info-icon" data-tooltip="Number of completed trades"></span></div>
+      <div class="metric-value">{{ results.total_trades }}</div>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card-metrics" style="text-align:center;padding:40px;">
+  <p class="muted">No backtest results yet. Click "Retrain &amp; Backtest" to generate them.</p>
+</div>
+{% endif %}
+
+<!-- ML MODEL EVALUATION ──────────────────────────────────────────── -->
+{% if ml_metrics %}
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:14px;font-weight:700;color:#e6edf3;margin:0 0 12px;">ML Model Metrics</h3>
+
+  <div class="grid-2">
+    <!-- Classification Metrics -->
+    <div class="card-metrics">
+      <div class="metrics-title">Classification Performance <span class="info-icon" data-tooltip="How well the model predicts LONG vs FLAT signals"></span></div>
+
+      <div class="metric-row">
+        <div class="metric-label">Accuracy <span class="info-icon" data-tooltip="% of all predictions correct (but biased due to class imbalance)"></span></div>
+        <div class="metric-value">{{ "%.2f"|format(ml_metrics.accuracy * 100) }}%</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">Precision <span class="info-icon" data-tooltip="Of predicted LONG signals, how many were actually profitable"></span></div>
+        <div class="metric-value {{ 'good' if ml_metrics.precision > 0.5 else 'bad' }}">{{ "%.2f"|format(ml_metrics.precision * 100) }}%</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">Recall <span class="info-icon" data-tooltip="Of all profitable opportunities, how many did the model catch"></span></div>
+        <div class="metric-value {{ 'good' if ml_metrics.recall > 0.5 else 'bad' }}">{{ "%.2f"|format(ml_metrics.recall * 100) }}%</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">F1 Score <span class="info-icon" data-tooltip="Harmonic mean of precision & recall (best at 1.0)"></span></div>
+        <div class="metric-value">{{ "%.4f"|format(ml_metrics.f1) }}</div>
+      </div>
+
+      <div class="metric-row" style="border-bottom:none;">
+        <div class="metric-label">Target: TP Hit Before SL <span class="info-icon" data-tooltip="Will 2×ATR be reached before 1×ATR loss within 12 candles?"></span></div>
+      </div>
+    </div>
+
+    <!-- Dataset Info -->
+    <div class="card-metrics">
+      <div class="metrics-title">Dataset &amp; Features <span class="info-icon" data-tooltip="Training and validation data composition"></span></div>
+
+      <div class="metric-row">
+        <div class="metric-label">Train Samples <span class="info-icon" data-tooltip="Historical bars used to train the model"></span></div>
+        <div class="metric-value">{{ ml_metrics.train_samples }}</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">Test Samples <span class="info-icon" data-tooltip="Hold-out bars used to evaluate model"></span></div>
+        <div class="metric-value">{{ ml_metrics.test_samples }}</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">Train/Test Split <span class="info-icon" data-tooltip="Temporal train-test split ratio"></span></div>
+        <div class="metric-value">80/20</div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-label">Features <span class="info-icon" data-tooltip="Number of indicators & technical features"></span></div>
+        <div class="metric-value">{{ ml_metrics.feature_count }}</div>
+      </div>
+
+      <div class="metric-row" style="border-bottom:none;">
+        <div class="metric-label">Algorithm <span class="info-icon" data-tooltip="200 trees, max depth 8, min 3 samples/leaf"></span></div>
+        <div class="metric-value">Random Forest</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Feature Importance -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:14px;font-weight:700;color:#e6edf3;margin:0 0 12px;">Feature Importance</h3>
+  <p style="font-size:11px;color:var(--muted);margin:0 0 12px;">Most predictive technical indicators (Random Forest split gain)</p>
+
+  <div class="grid-2">
+    <div style="padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+      {% if ml_metrics.feature_importance %}
+      {% for feat, imp in ml_metrics.feature_importance.items() %}
+      <div class="metric-row">
+        <div class="metric-label" style="font-size:11px;">{{ feat }}</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="background:linear-gradient(90deg,#3fb950,#58a6ff);height:4px;border-radius:2px;width:{{ (imp * 250)|int }}px;min-width:1px;"></div>
+          <span class="muted" style="font-size:10px;min-width:35px;">{{ "%.1f"|format(imp * 100) }}%</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+
+    <!-- Feature importance chart -->
+    <div style="padding:0;overflow:hidden;border:1px solid var(--border);border-radius:8px;background:var(--surface);">
+      <img src="/static/models/feature_importance.png" alt="Feature Importance Chart" style="width:100%;display:block;"
+        onerror="this.parentElement.style.display='none'" />
+    </div>
+  </div>
+</div>
+
+<!-- Confusion Matrix -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:14px;font-weight:700;color:#e6edf3;margin:0 0 12px;">Confusion Matrix</h3>
+  <p style="font-size:11px;color:var(--muted);margin:0 0 12px;">
+    How often the model correctly predicts LONG signals (True Positive) vs false alarms (False Positive)
+  </p>
+
+  <div style="padding:0;overflow:hidden;border:1px solid var(--border);border-radius:8px;background:var(--surface);max-width:500px;">
+    <img src="/static/models/confusion_matrix.png" alt="Confusion Matrix" style="width:100%;display:block;"
+      onerror="this.parentElement.style.display='none'" />
+  </div>
+</div>
+
+{% endif %}
+
+<script>
+function runBacktest() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⌛ Training...';
+  fetch('/api/run_backtest', {method: 'POST'})
+    .then(r => r.json())
+    .then(() => {
+      btn.textContent = '⟳ Retraining...';
+      setTimeout(() => location.reload(), 2000);
+    })
+    .catch(e => {
+      console.error(e);
+      btn.disabled = false;
+      btn.textContent = '↻ Retrain &amp; Backtest';
+      alert('Error: ' + e);
+    });
+}
+</script>
+{% endblock %}

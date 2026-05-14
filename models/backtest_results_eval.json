@@ -1,0 +1,49 @@
+{
+  "total_return": -7.5,
+  "buy_hold_return": -29.73,
+  "sharpe": -0.26,
+  "max_drawdown": 26.92,
+  "win_rate": 32.35,
+  "total_trades": 34,
+  "avg_win": 4.77,
+  "avg_loss": -2.53,
+  "final_capital": 92.5,
+  "accuracy": 0.6573,
+  "confusion_matrix": [
+    [
+      1058,
+      170
+    ],
+    [
+      440,
+      112
+    ]
+  ],
+  "classification_report": {
+    "0": {
+      "precision": 0.7062750333778371,
+      "recall": 0.8615635179153095,
+      "f1-score": 0.7762289068231841,
+      "support": 1228.0
+    },
+    "1": {
+      "precision": 0.3971631205673759,
+      "recall": 0.2028985507246377,
+      "f1-score": 0.2685851318944844,
+      "support": 552.0
+    },
+    "accuracy": 0.6573033707865169,
+    "macro avg": {
+      "precision": 0.5517190769726066,
+      "recall": 0.5322310343199737,
+      "f1-score": 0.5224070193588343,
+      "support": 1780.0
+    },
+    "weighted avg": {
+      "precision": 0.6104156087309974,
+      "recall": 0.6573033707865169,
+      "f1-score": 0.6188022979688907,
+      "support": 1780.0
+    }
+  }
+}

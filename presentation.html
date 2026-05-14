@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ISLA Bot — Apresentação</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<style>
+/* ── Variables ────────────────────────────────────────────────────── */
+:root {
+  --green:   #3fb950;
+  --red:     #f85149;
+  --blue:    #58a6ff;
+  --yellow:  #d2a520;
+  --muted:   #8b949e;
+  --border:  #30363d;
+  --surface: #161b22;
+  --bg:      #0d1117;
+  --text:    #e6edf3;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────── */
+.reveal {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+}
+.reveal .slides { background: var(--bg); }
+.reveal .slides section {
+  text-align: left;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 16px 36px 12px;
+  height: 100%;
+}
+.reveal h1, .reveal h2, .reveal h3 {
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+.reveal h2 {
+  font-size: 1.35em;
+  border-bottom: 2px solid var(--green);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+.reveal h3 {
+  font-size: 0.95em;
+  color: var(--blue);
+  margin-bottom: 8px;
+  margin-top: 12px;
+}
+.reveal p  { color: #c9d1d9; font-size: 0.82em; line-height: 1.5; margin: 0 0 6px; }
+.reveal ul { list-style: none; padding: 0; margin: 0; }
+.reveal ul li { font-size: 0.8em; color: #c9d1d9; line-height: 1.5; margin-bottom: 7px; }
+.reveal ul li::before { content: "▸ "; color: var(--green); }
+.reveal .progress  { color: var(--green); }
+.reveal .controls  { color: var(--green); }
+
+/* ── Utilities ────────────────────────────────────────────────────── */
+.green  { color: var(--green)  !important; }
+.red    { color: var(--red)    !important; }
+.blue   { color: var(--blue)   !important; }
+.yellow { color: var(--yellow) !important; }
+.muted  { color: var(--muted)  !important; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.card-label {
+  font-size: 0.65em; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px;
+}
+.card-val  { font-size: 1.55em; font-weight: 800; line-height: 1.1; }
+.card-desc { font-size: 0.68em; color: var(--muted); margin-top: 3px; }
+
+.tag {
+  display: inline-block; padding: 2px 7px; border-radius: 4px;
+  font-size: 0.68em; background: rgba(139,148,158,.12); color: var(--muted); margin: 1px;
+}
+.tag.green  { background: rgba(63,185,80,.15);  color: var(--green); }
+.tag.blue   { background: rgba(88,166,255,.15); color: var(--blue); }
+.tag.red    { background: rgba(248,81,73,.15);  color: var(--red); }
+.tag.yellow { background: rgba(210,153,34,.15); color: var(--yellow); }
+
+/* "Mensagem-chave" bar ─────────────────────────────────────────────── */
+.key-msg {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(63,185,80,.1);
+  border-top: 1px solid rgba(63,185,80,.3);
+  padding: 7px 36px;
+  font-size: 0.72em; color: var(--green);
+  display: flex; align-items: center; gap: 8px;
+}
+.key-msg::before { content: "💡"; }
+.key-msg.blue   { background: rgba(88,166,255,.1);  border-color: rgba(88,166,255,.3); color: var(--blue); }
+.key-msg.yellow { background: rgba(210,153,34,.1);  border-color: rgba(210,153,34,.3); color: var(--yellow); }
+
+/* Callout boxes ────────────────────────────────────────────────────── */
+.callout {
+  background: rgba(63,185,80,.08);
+  border-left: 3px solid var(--green);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 14px; font-size: 0.78em;
+  color: var(--text); line-height: 1.5; margin-top: 10px;
+}
+.callout.blue   { background: rgba(88,166,255,.08);  border-color: var(--blue); }
+.callout.yellow { background: rgba(210,153,34,.08);  border-color: var(--yellow); }
+.callout.red    { background: rgba(248,81,73,.08);   border-color: var(--red); }
+
+/* Tables ───────────────────────────────────────────────────────────── */
+.reveal table { width: 100%; border-collapse: collapse; font-size: 0.76em; }
+.reveal table th {
+  background: var(--surface); color: var(--muted);
+  text-transform: uppercase; font-size: 0.7em; letter-spacing: 0.4px;
+  padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left;
+}
+.reveal table td { padding: 7px 10px; border-bottom: 1px solid rgba(48,54,61,.5); color: #c9d1d9; }
+.reveal table tr:last-child td { border-bottom: none; }
+.winner { background: rgba(63,185,80,.08) !important; }
+
+/* ══════════════════════════════════════════════════════════════════
+   SLIDE-SPECIFIC
+══════════════════════════════════════════════════════════════════ */
+
+/* Cover */
+.cover-wrap { text-align: center; padding: 10px 0; }
+.cover-logo {
+  display: inline-block;
+  background: linear-gradient(135deg, #3fb950, #58a6ff);
+  border-radius: 16px; padding: 14px 30px; margin-bottom: 16px;
+  font-size: 2.6em; font-weight: 900; letter-spacing: -1px; color: #0d1117;
+}
+.cover-group {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 24px; display: inline-block; margin: 14px auto 10px;
+}
+.cover-group-label { font-size: 0.62em; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--muted); margin-bottom: 6px; }
+.cover-members { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+.cover-member  { font-size: 0.8em; color: var(--text); font-weight: 600; }
+
+/* Agenda */
+.agenda-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.agenda-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 14px;
+  display: flex; gap: 10px; align-items: center;
+}
+.agenda-num  { font-size: 1.3em; font-weight: 900; color: var(--green); width: 24px; flex-shrink: 0; }
+.agenda-text { font-size: 0.77em; color: var(--text); }
+
+/* Motivation — big stats */
+.stat-trio { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 16px 0; }
+.stat-block { text-align: center; padding: 18px 10px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; }
+.stat-num  { font-size: 2.6em; font-weight: 900; line-height: 1; }
+.stat-desc { font-size: 0.72em; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+
+/* Architecture — CSS boxes */
+.arch-flow {
+  display: flex; flex-direction: column; gap: 6px; margin: 6px 0;
+}
+.arch-row { display: flex; gap: 8px; align-items: stretch; }
+.arch-box {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 12px; text-align: center;
+}
+.arch-box.hl-green { border-color: rgba(63,185,80,.5); }
+.arch-box.hl-blue  { border-color: rgba(88,166,255,.5); }
+.arch-box.hl-yellow{ border-color: rgba(210,153,34,.5); }
+.arch-box-title { font-size: 0.72em; font-weight: 700; color: var(--text); }
+.arch-box-sub   { font-size: 0.62em; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+.arch-arrow { display: flex; align-items: center; justify-content: center;
+  font-size: 1.1em; color: var(--border); flex-shrink: 0; padding: 0 2px; }
+.arch-span { grid-column: 1 / -1; }
+
+/* Pipeline — two groups */
+.pipe-group-label {
+  font-size: 0.62em; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--muted); margin-bottom: 6px;
+  padding-left: 4px; border-left: 2px solid var(--border); padding-left: 8px;
+}
+.pipe-group-label.blue  { border-color: var(--blue);  color: var(--blue); }
+.pipe-group-label.green { border-color: var(--green); color: var(--green); }
+.pipe { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.pipe-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 12px;
+}
+.pipe-row.hl-blue  { border-color: rgba(88,166,255,.35); }
+.pipe-row.hl-green { border-color: rgba(63,185,80,.35); }
+.pipe-n {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(139,148,158,.12); color: var(--muted);
+  font-size: 0.7em; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.pipe-n.blue  { background: rgba(88,166,255,.2); color: var(--blue); }
+.pipe-n.green { background: rgba(63,185,80,.2);  color: var(--green); }
+.pipe-title { font-size: 0.78em; font-weight: 700; color: var(--text); }
+.pipe-desc  { font-size: 0.66em; color: var(--muted); }
+.pipe-body  { flex: 1; }
+
+/* Risk — 4 cards */
+.risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.risk-item { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; }
+.risk-icon  { font-size: 1.2em; margin-bottom: 4px; }
+.risk-title { font-size: 0.78em; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+.risk-desc  { font-size: 0.68em; color: var(--muted); line-height: 1.45; }
+
+/* Results — hero */
+.hero-center { text-align: center; padding: 8px 0 12px; }
+.hero-num    { font-size: 5em; font-weight: 900; line-height: 1; letter-spacing: -2px; }
+.hero-label  { font-size: 0.88em; color: var(--muted); margin-top: 4px; }
+.result-context { margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ══════════════ 1. CAPA ══════════════ -->
+<section>
+  <div class="cover-wrap">
+    <div class="cover-logo">ISLA Bot</div>
+    <p style="font-size:1.05em;color:var(--blue);font-weight:600;margin:0 0 4px;">
+      Trading Algorítmico com Machine Learning
+    </p>
+    <p style="font-size:0.78em;color:var(--muted);margin:0 0 18px;">
+      BTC/USD · Paper Trading · Alpaca API · Random Forest · Sentimento LLM
+    </p>
+    <div class="cover-group">
+      <div class="cover-group-label">Grupo</div>
+      <div class="cover-members">
+        <span class="cover-member">Raphael Malburg</span>
+        <span class="cover-member">André Neves</span>
+        <span class="cover-member">Vasco</span>
+        <span class="cover-member">Beatriz Ferreira</span>
+      </div>
+    </div>
+    <p style="font-size:0.7em;color:var(--muted);margin:10px 0 4px;">
+      Engenharia de Software e IA · Março 2026
+    </p>
+    <p style="font-size:0.58em;color:rgba(139,148,158,.55);margin:0;">
+      ⚠ Projeto académico · Não é recomendação de investimento · Paper trading apenas
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════ 2. AGENDA ══════════════ -->
+<section>
+  <h2>Agenda</h2>
+  <div class="agenda-grid">
+    <div class="agenda-item"><span class="agenda-num">1</span><span class="agenda-text">Motivação e Problema</span></div>
+    <div class="agenda-item"><span class="agenda-num">2</span><span class="agenda-text">Solução — O que é o ISLA Bot</span></div>
+    <div class="agenda-item"><span class="agenda-num">3</span><span class="agenda-text">Arquitetura do Sistema</span></div>
+    <div class="agenda-item"><span class="agenda-num">4</span><span class="agenda-text">Pipeline de Decisão (8 passos)</span></div>
+    <div class="agenda-item"><span class="agenda-num">5</span><span class="agenda-text">Modelo de Machine Learning</span></div>
+    <div class="agenda-item"><span class="agenda-num">6</span><span class="agenda-text">Gestão de Risco</span></div>
+    <div class="agenda-item"><span class="agenda-num">7</span><span class="agenda-text">Resultados — Backtest 6 Meses</span></div>
+    <div class="agenda-item"><span class="agenda-num">8</span><span class="agenda-text">Metodologia &amp; Equipa</span></div>
+    <div class="agenda-item"><span class="agenda-num">9</span><span class="agenda-text">Conclusões e Próximos Passos</span></div>
+    <div class="agenda-item"><span class="agenda-num">10</span><span class="agenda-text">Referências</span></div>
+  </div>
+  <div class="key-msg blue">O bot resolve um problema real: mercados cripto operam 24/7, humanos não conseguem.</div>
+</section>
+
+<!-- ══════════════ 3. MOTIVAÇÃO ══════════════ -->
+<section>
+  <h2>Motivação e Problema</h2>
+  <div class="stat-trio">
+    <div class="stat-block">
+      <div class="stat-num" style="color:var(--red);">24/7</div>
+      <div class="stat-desc">Mercados cripto nunca fecham — monitorização humana contínua é impossível</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-num" style="color:var(--yellow);">≈70%</div>
+      <div class="stat-desc">dos traders individuais perdem dinheiro por decisões emocionais e inconsistentes</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-num" style="color:var(--green);">ML</div>
+      <div class="stat-desc">Dados históricos ricos permitem modelar padrões e aplicar regras sem emoção</div>
+    </div>
+  </div>
+  <div class="callout blue" style="margin-top:14px;">
+    <strong>Pergunta de investigação:</strong> É possível construir um sistema algorítmico que identifique
+    oportunidades em BTC/USD e <strong>supere Buy &amp; Hold</strong> usando indicadores técnicos e ML,
+    com gestão de risco automática?
+  </div>
+  <div class="key-msg">A vantagem do bot não é ser mais inteligente — é ser <strong>consistente e disciplinado</strong>.</div>
+</section>
+
+<!-- ══════════════ 4. SOLUÇÃO ══════════════ -->
+<section>
+  <h2>A Solução — ISLA Bot</h2>
+  <div class="grid-2" style="margin-bottom:10px;">
+    <ul>
+      <li>Bot de trading algorítmico para <strong>BTC/USD</strong> em paper trading</li>
+      <li>Analisa candles de <strong>1 hora</strong> com 17 indicadores técnicos</li>
+      <li><strong>Random Forest</strong> prevê se o TP será atingido antes do SL</li>
+      <li>Gate de <strong>sentimento</strong> (Gemini Flash) bloqueia entradas em mercado muito bearish</li>
+      <li>Gestão de risco automática: SL/TP baseados em ATR, circuit breaker, exit watchdog a cada <strong>10s</strong></li>
+      <li><strong>Dashboard web</strong> em tempo real com gráficos interativos</li>
+    </ul>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div class="card">
+        <div class="card-label">Exchange</div>
+        <div style="font-size:0.88em;font-weight:700;color:var(--text);">Alpaca Markets</div>
+        <div class="card-desc">Paper trading, sem risco real</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Stack</div>
+        <div style="margin-top:4px;">
+          <span class="tag blue">Python</span><span class="tag">Flask</span>
+          <span class="tag blue">Scikit-learn</span><span class="tag">SQLite</span>
+          <span class="tag">Plotly.js</span><span class="tag yellow">Gemini</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">Timeframe · Ativo</div>
+        <div style="font-size:0.88em;font-weight:700;color:var(--text);">1H candles · BTC/USD</div>
+      </div>
+    </div>
+  </div>
+  <div class="key-msg blue">Pipeline end-to-end: dados de mercado → ML → sentimento → risco → ordem na exchange.</div>
+</section>
+
+<!-- ══════════════ 5. ARQUITETURA ══════════════ -->
+<section>
+  <h2>Arquitetura do Sistema</h2>
+  <div class="arch-flow">
+
+    <!-- Row 1: data sources -->
+    <div class="arch-row">
+      <div class="arch-box hl-blue">
+        <div class="arch-box-title blue">Alpaca API</div>
+        <div class="arch-box-sub">Candles 1H · Ordens · Conta</div>
+      </div>
+      <div class="arch-arrow">+</div>
+      <div class="arch-box hl-yellow">
+        <div class="arch-box-title yellow">OpenRouter / Gemini</div>
+        <div class="arch-box-sub">Análise de sentimento LLM</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow" style="text-align:center;padding:2px 0;">↓</div>
+
+    <!-- Row 2: core pipeline -->
+    <div class="arch-row">
+      <div class="arch-box">
+        <div class="arch-box-title">src/data.py</div>
+        <div class="arch-box-sub">Fetch + 17 indicadores</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box hl-blue">
+        <div class="arch-box-title blue">src/model.py</div>
+        <div class="arch-box-sub">Random Forest · predict_proba</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box">
+        <div class="arch-box-title">src/strategy.py</div>
+        <div class="arch-box-sub">Sizing · SL/TP · Checks</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-box hl-green">
+        <div class="arch-box-title green">src/broker.py</div>
+        <div class="arch-box-sub">Alpaca · ordens · posições</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow" style="text-align:center;padding:2px 0;">↓</div>
+
+    <!-- Row 3: orchestration -->
+    <div class="arch-row">
+      <div class="arch-box hl-blue" style="flex:2;">
+        <div class="arch-box-title blue">src/app.py — Flask</div>
+        <div class="arch-box-sub">bot_loop (1H) · exit_watchdog (10s) · REST API · Threads</div>
+      </div>
+      <div class="arch-arrow">+</div>
+      <div class="arch-box" style="flex:1;">
+        <div class="arch-box-title">SQLite</div>
+        <div class="arch-box-sub">trades · runs · equity</div>
+      </div>
+    </div>
+
+    <div class="arch-arrow" style="text-align:center;padding:2px 0;">↓</div>
+
+    <!-- Row 4: frontend -->
+    <div class="arch-row">
+      <div class="arch-box hl-green" style="flex:1;">
+        <div class="arch-box-title green">Dashboard Web</div>
+        <div class="arch-box-sub">Jinja2 · Plotly.js · Polling 15s</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="key-msg blue">Dois threads em background: bot_loop (1H) e exit_watchdog (10s) — o servidor Flask nunca bloqueia.</div>
+</section>
+
+<!-- ══════════════ 6. PIPELINE ══════════════ -->
+<section>
+  <h2>Pipeline de Decisão — A cada candle de 1H</h2>
+
+  <div class="grid-2" style="gap:16px;">
+    <!-- Análise -->
+    <div>
+      <div class="pipe-group-label blue">Análise (1–5)</div>
+      <div class="pipe">
+        <div class="pipe-row">
+          <div class="pipe-n">1</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Fetch Market Data</div>
+            <div class="pipe-desc">90 dias · 1H · ~2.160 barras BTC/USD via Alpaca</div>
+          </div>
+        </div>
+        <div class="pipe-row">
+          <div class="pipe-n">2</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Feature Engineering</div>
+            <div class="pipe-desc">RSI, MACD, EMA-20/50, BB, ATR, OBV + 10 mais (17 total)</div>
+          </div>
+        </div>
+        <div class="pipe-row hl-blue">
+          <div class="pipe-n blue">3</div>
+          <div class="pipe-body">
+            <div class="pipe-title">ML Prediction — Random Forest</div>
+            <div class="pipe-desc">P(TP antes SL em 12H) ≥ 55% → LONG · senão → FLAT</div>
+          </div>
+        </div>
+        <div class="pipe-row">
+          <div class="pipe-n">4</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Drift Detection</div>
+            <div class="pipe-desc">Confiança média últimas 30 runs &lt; 50% → aviso</div>
+          </div>
+        </div>
+        <div class="pipe-row">
+          <div class="pipe-n">5</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Sentiment Gate + Circuit Breaker</div>
+            <div class="pipe-desc">Gemini ≤ −0.5 bloqueia · perda diária &gt;10% para trading</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Execução -->
+    <div>
+      <div class="pipe-group-label green">Execução (6–8)</div>
+      <div class="pipe">
+        <div class="pipe-row">
+          <div class="pipe-n">6</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Position Sizing</div>
+            <div class="pipe-desc">equity × 5% ÷ stop_pct · onde stop_pct = 1×ATR ÷ preço</div>
+          </div>
+        </div>
+        <div class="pipe-row hl-green">
+          <div class="pipe-n green">7</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Market BUY + Disaster Stop</div>
+            <div class="pipe-desc">Ordem de mercado + stop-limit a 3×ATR (safety net de crash)</div>
+          </div>
+        </div>
+        <div class="pipe-row hl-green">
+          <div class="pipe-n green">8</div>
+          <div class="pipe-body">
+            <div class="pipe-title">Exit Watchdog — a cada 10s</div>
+            <div class="pipe-desc">SL atingido (1×ATR) · TP atingido (2×ATR) · max 12H · sinal flip</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout" style="margin-top:10px;font-size:0.72em;">
+        O watchdog verifica SL e TP <strong>a cada 10 segundos</strong> — não depende da exchange,
+        o que elimina ordens órfãs e permite saídas baseadas em qualquer condição.
+      </div>
+    </div>
+  </div>
+
+  <div class="key-msg">O bot entra pouco e sai rápido — selectividade é a principal fonte de vantagem.</div>
+</section>
+
+<!-- ══════════════ 7. MODELO ML ══════════════ -->
+<section>
+  <h2>Modelo de Machine Learning</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Objetivo do modelo</h3>
+      <div class="callout" style="margin:0 0 10px;">
+        <strong>"O Take-Profit (2×ATR) será atingido <em>antes</em> do Stop-Loss (1×ATR)
+        nos próximos 12 candles?"</strong>
+      </div>
+      <p style="font-size:0.75em;color:var(--muted);">
+        Target directamente alinhado com a lógica real de saída.
+        Precisão = taxa de vitória nas posições abertas.
+      </p>
+      <h3>Algoritmo &amp; Validação</h3>
+      <ul>
+        <li>Random Forest · 200 árvores · profundidade máx. 8</li>
+        <li>StandardScaler em todos os features</li>
+        <li>Walk-forward validation — <strong>TimeSeriesSplit 5 folds</strong></li>
+        <li>Sem data leakage temporal</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Top features (importância)</h3>
+      <table>
+        <thead><tr><th>#</th><th>Feature</th><th>Peso</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>OBV</td><td class="green"><strong>11.9%</strong></td></tr>
+          <tr><td>2</td><td>ATR-14</td><td class="green"><strong>10.0%</strong></td></tr>
+          <tr><td>3</td><td>EMA-20</td><td class="green">9.6%</td></tr>
+          <tr><td>4</td><td>EMA-50</td><td>8.9%</td></tr>
+          <tr><td>5</td><td>BB High / Low</td><td>~8.2%</td></tr>
+          <tr><td>6</td><td>MACD + Signal</td><td>5.2%</td></tr>
+          <tr><td>7</td><td>RSI-14</td><td class="muted">5.0%</td></tr>
+        </tbody>
+      </table>
+      <div class="callout blue" style="margin-top:8px;font-size:0.7em;">
+        Volume (OBV) e volatilidade (ATR) superam indicadores de momentum —
+        <strong>onde há volume há movimento</strong>.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg blue">Walk-forward garante que cada previsão usa apenas dados do passado — como numa operação real.</div>
+</section>
+
+<!-- ══════════════ 8. MÉTRICAS ML ══════════════ -->
+<section>
+  <h2>Métricas do Modelo (holdout)</h2>
+  <div class="grid-4" style="margin-bottom:14px;">
+    <div class="card">
+      <div class="card-label">Accuracy</div>
+      <div class="card-val green">67.9%</div>
+      <div class="card-desc">previsões corretas</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Precision</div>
+      <div class="card-val yellow">23.6%</div>
+      <div class="card-desc">taxa de vitória real</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Recall</div>
+      <div class="card-val yellow">10.9%</div>
+      <div class="card-desc">oportunidades captadas</div>
+    </div>
+    <div class="card">
+      <div class="card-label">F1 Score</div>
+      <div class="card-val muted">0.149</div>
+      <div class="card-desc">P × R balanceados</div>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div>
+      <h3>O que significam estes números</h3>
+      <ul>
+        <li><strong class="yellow">Precision 23.6%</strong> — o bot ganha 1 em cada 4 trades que abre</li>
+        <li>Break-even para RR 2:1 é <strong>33.3%</strong> — estamos abaixo</li>
+        <li>Alta accuracy (68%) porque o modelo acerta a maior parte dos <em>FLATs</em></li>
+        <li>Recall baixo = poucas entradas — o bot é muito selectivo</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Dados de treino</h3>
+      <table>
+        <tr><td>Amostras treino</td><td class="green">6.967</td></tr>
+        <tr><td>Amostras teste</td><td>1.742</td></tr>
+        <tr><td>Features</td><td>17</td></tr>
+        <tr><td>Target</td><td>TP antes SL em 12H</td></tr>
+        <tr><td>Validação</td><td>Walk-forward 5 folds</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="key-msg yellow">Precision abaixo de 33.3% significa edge negativo por trade — o ganho vem da selectividade, não da precisão.</div>
+</section>
+
+<!-- ══════════════ 9. GESTÃO DE RISCO ══════════════ -->
+<section>
+  <h2>Gestão de Risco</h2>
+  <div class="risk-grid">
+    <div class="risk-item">
+      <div class="risk-icon">🔴🟢</div>
+      <div class="risk-title">Stop-Loss (1×ATR) &amp; Take-Profit (2×ATR)</div>
+      <div class="risk-desc">
+        Rácio RR de <strong>2:1</strong>. Geridos pelo exit watchdog a cada <strong>10 segundos</strong> — não por ordens na exchange.
+        Uma posição vencedora compensa 2 perdedoras.
+      </div>
+    </div>
+    <div class="risk-item">
+      <div class="risk-icon">⚡</div>
+      <div class="risk-title">Circuit Breaker + Max Hold (12H)</div>
+      <div class="risk-desc">
+        Bloqueia novos trades se perda diária ultrapassar <strong>10% do capital</strong>.
+        Fecha posição automaticamente após <strong>12 candles</strong> mesmo sem SL/TP.
+      </div>
+    </div>
+    <div class="risk-item">
+      <div class="risk-icon">⚠️</div>
+      <div class="risk-title">Disaster Stop (3×ATR) na Alpaca</div>
+      <div class="risk-desc">
+        Única ordem colocada na exchange — stop-limit a <strong>3×ATR</strong> abaixo da entrada.
+        Só dispara se o servidor cair. Protege contra perda catastrófica sem interferir com saídas normais.
+      </div>
+    </div>
+    <div class="risk-item">
+      <div class="risk-icon">📊</div>
+      <div class="risk-title">Position Sizing (5% fixo)</div>
+      <div class="risk-desc">
+        Risco fixo de <strong>5% do capital</strong> por trade, ajustado pela volatilidade (ATR).
+        Testámos Kelly Criterion — não melhora com edge negativo por trade.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg">Duas camadas de protecção: app-side (lógica real) + exchange-side (safety net) — resiliente a falhas.</div>
+</section>
+
+<!-- ══════════════ 10. DASHBOARD ══════════════ -->
+<section>
+  <h2>Dashboard Web em Tempo Real</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Interface ao vivo</h3>
+      <ul>
+        <li>Preço BTC e sinal do bot actualizados a cada <strong>15 segundos</strong> sem page refresh</li>
+        <li>Gráfico de velas interactivo com <strong>zoom, pan, scroll</strong> (estilo TradingView)</li>
+        <li>Linhas de <span class="red">SL</span> e <span class="green">TP</span> sobrepostas no gráfico com etiqueta de preço ao vivo</li>
+        <li>RSI-14 e MACD sincronizados com o gráfico principal</li>
+        <li>Kill switch para fechar todas as posições imediatamente</li>
+      </ul>
+      <h3 style="margin-top:12px;">Secções informativas</h3>
+      <ul>
+        <li>📊 Showcase 6 meses — equity curve + log de 23 trades</li>
+        <li>🤖 Métricas ML + gráfico de feature importance</li>
+        <li>🔄 Pipeline explicado passo a passo com thresholds reais</li>
+      </ul>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div class="card">
+        <div class="card-label">Polling intervals</div>
+        <div style="font-size:0.8em;color:var(--text);margin-top:4px;">
+          <span class="tag blue">15s</span> preço + posição + SL/TP no gráfico<br>
+          <span class="tag">30s</span> sinal ML + trades + métricas completas
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">REST API</div>
+        <div style="font-size:0.72em;color:var(--muted);margin-top:4px;line-height:1.7;">
+          <code style="color:var(--green);">GET</code> /api/live_stats<br>
+          <code style="color:var(--green);">GET</code> /api/dashboard_data<br>
+          <code style="color:var(--green);">GET</code> /api/showcase<br>
+          <code style="color:var(--red);">POST</code> /api/kill_switch
+        </div>
+      </div>
+      <div class="callout blue" style="margin:0;font-size:0.72em;">
+        Sem WebSockets — polling assíncrono com <code>fetch()</code>.
+        Plotly.js actualiza gráficos in-place preservando o zoom do utilizador.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg blue">O dashboard é a "cabine de pilotagem" — tudo visível numa única página sem necessidade de refresh.</div>
+</section>
+
+<!-- ══════════════ 11. RESULTADOS ══════════════ -->
+<section>
+  <h2>Resultados — Backtest Walk-Forward 6 Meses</h2>
+  <div class="grid-2" style="align-items:center;">
+    <!-- Hero metric -->
+    <div class="hero-center">
+      <div style="font-size:0.78em;color:var(--muted);margin-bottom:4px;">Outperformance vs Buy &amp; Hold</div>
+      <div class="hero-num green">+10.25%</div>
+      <div class="hero-label">estratégia −0.50% · buy &amp; hold −10.74%</div>
+      <div style="margin-top:16px;" class="grid-2" style="gap:8px;">
+        <div class="card" style="text-align:center;">
+          <div class="card-label">Win Rate</div>
+          <div class="card-val green">52.2%</div>
+        </div>
+        <div class="card" style="text-align:center;">
+          <div class="card-label">Trades</div>
+          <div class="card-val">23</div>
+        </div>
+      </div>
+    </div>
+    <!-- Context -->
+    <div>
+      <table style="margin-bottom:10px;">
+        <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+        <tbody>
+          <tr><td>Max Drawdown</td><td class="red">−12.34%</td></tr>
+          <tr><td>Profit Factor</td><td>1.05</td></tr>
+          <tr><td>Avg Win</td><td class="green">+$1.23</td></tr>
+          <tr><td>Avg Loss</td><td class="red">−$1.28</td></tr>
+          <tr><td>Sharpe Ratio</td><td class="yellow">−0.05</td></tr>
+        </tbody>
+      </table>
+      <div class="callout yellow" style="font-size:0.72em;">
+        <strong>Contexto:</strong> período fortemente bearish para BTC (−10.7%).
+        O bot <strong>preservou capital</strong> ao ficar maioritariamente FLAT —
+        a vantagem vem de <em>não perder</em>, não de ganhar muito.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg">Em mercado em baixa, não perder já é ganhar — o bot superou o benchmark em +10.25%.</div>
+</section>
+
+<!-- ══════════════ 12. KELLY ══════════════ -->
+<section>
+  <h2>Análise — Kelly Criterion vs Fixed 5%</h2>
+  <div class="grid-2" style="margin-bottom:12px;">
+    <div>
+      <table>
+        <thead><tr><th>Estratégia</th><th>Retorno</th><th>Sharpe</th><th>Max DD</th></tr></thead>
+        <tbody>
+          <tr class="winner">
+            <td><strong>Fixed 5% (atual)</strong></td>
+            <td class="green"><strong>+4.72%</strong></td>
+            <td>0.17</td>
+            <td class="red">22.1%</td>
+          </tr>
+          <tr>
+            <td>Full Kelly</td>
+            <td class="green">+3.11%</td>
+            <td><strong>0.19</strong></td>
+            <td class="green">10.5%</td>
+          </tr>
+          <tr>
+            <td>Half Kelly</td>
+            <td class="yellow">+1.52%</td>
+            <td>0.16</td>
+            <td class="green">5.7%</td>
+          </tr>
+          <tr>
+            <td>Quarter Kelly</td>
+            <td class="yellow">+0.79%</td>
+            <td>0.16</td>
+            <td class="green">2.9%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>Porquê Kelly não funciona aqui</h3>
+      <div class="callout yellow" style="margin-bottom:10px;font-size:0.75em;">
+        <strong>f* = (p × b − q) / b</strong><br>
+        Com p=0.236, b=2 → <span class="red"><strong>f* = −14.6%</strong></span> (não apostar)<br><br>
+        O modelo prevê confiança de ~55–65% mas a precisão real é 23.6%.
+        Kelly usa probabilidades optimistas → subdimensiona ganhos, não ajuda.
+      </div>
+      <div class="callout" style="font-size:0.75em;">
+        <strong>Quando Kelly funcionaria:</strong> precisão ≥ <strong>33.3%</strong>
+        (break-even para RR 2:1). Abaixo disso, fixed fraction ganha sempre.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg yellow">Kelly só é válido com edge positivo por trade — primeiro melhorar o modelo, depois aplicar Kelly.</div>
+</section>
+
+<!-- ══════════════ 13. CONCLUSÕES ══════════════ -->
+<section>
+  <h2>Conclusões</h2>
+  <div class="grid-2" style="margin-bottom:12px;">
+    <div>
+      <h3>O que conseguimos</h3>
+      <ul>
+        <li><strong class="green">+10.25%</strong> de outperformance vs Buy &amp; Hold num período bearish</li>
+        <li>Pipeline completo end-to-end com 8 camadas de decisão</li>
+        <li>Sistema de exit management robusto — watchdog 10s + disaster stop</li>
+        <li>Dashboard profissional com atualização em tempo real</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Limitações identificadas</h3>
+      <ul>
+        <li>Precision <strong class="red">23.6%</strong> — abaixo do break-even (33.3%)</li>
+        <li>Apenas 23 trades em 6 meses — baixa frequência de sinal</li>
+        <li>Kelly Criterion não aplicável sem edge positivo por trade</li>
+        <li>Paper trading — slippage real pode ser maior</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout blue">
+    O bot demonstra que <strong>selectividade inteligente</strong> — ficar FLAT na maioria das barras —
+    pode superar Buy &amp; Hold em mercados em baixa. O valor está na <em>ausência de maus trades</em>,
+    não na qualidade de cada trade individual.
+  </div>
+  <div class="key-msg">Evitar perdas é tão valioso quanto ganhar — o bot prova que disciplina algorítmica supera intuição humana.</div>
+</section>
+
+<!-- ══════════════ 13b. METODOLOGIA E EQUIPA ══════════════ -->
+<section>
+  <h2>Metodologia &amp; Contribuições da Equipa</h2>
+  <div class="grid-2" style="margin-bottom:12px;">
+    <div>
+      <h3>Processo de Desenvolvimento</h3>
+      <ul>
+        <li><strong>Abordagem iterativa</strong> — ciclos semanais de build → test → backtest → refine</li>
+        <li>Controlo de versões via <strong>Git</strong> — commits atómicos por feature</li>
+        <li>Testes de integração com dados reais da Alpaca (paper trading)</li>
+        <li>Walk-forward backtest como critério de aceitação de cada modelo</li>
+        <li>Deploy contínuo em <strong>Railway</strong> — dashboard sempre acessível ao grupo</li>
+      </ul>
+      <div class="callout" style="font-size:0.72em;margin-top:10px;">
+        Nenhuma funcionalidade considerada "pronta" sem backtest validar métricas iguais ou superiores à iteração anterior.
+      </div>
+    </div>
+    <div>
+      <h3>Contribuições por Membro</h3>
+      <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px;">
+        <div class="card" style="padding:10px 14px;">
+          <div style="font-size:0.8em;font-weight:700;color:var(--text);margin-bottom:3px;">Raphael Malburg</div>
+          <div style="font-size:0.68em;color:var(--muted);">Arquitectura do sistema · Flask API · Dashboard web · Deploy Railway · Integração Alpaca</div>
+        </div>
+        <div class="card" style="padding:10px 14px;">
+          <div style="font-size:0.8em;font-weight:700;color:var(--text);margin-bottom:3px;">André Neves</div>
+          <div style="font-size:0.68em;color:var(--muted);">Pipeline ML · Feature engineering · Backtesting walk-forward · Análise de métricas</div>
+        </div>
+        <div class="card" style="padding:10px 14px;">
+          <div style="font-size:0.8em;font-weight:700;color:var(--text);margin-bottom:3px;">Vasco</div>
+          <div style="font-size:0.68em;color:var(--muted);">Gestão de risco · Exit watchdog · Análise Kelly Criterion · Position sizing</div>
+        </div>
+        <div class="card" style="padding:10px 14px;">
+          <div style="font-size:0.8em;font-weight:700;color:var(--text);margin-bottom:3px;">Beatriz Ferreira</div>
+          <div style="font-size:0.68em;color:var(--muted);">Integração sentimento LLM · Testes de integração · Documentação · Análise de resultados</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="key-msg blue">Cada módulo foi desenvolvido e testado independentemente antes da integração — falhas identificadas cedo.</div>
+</section>
+
+<!-- ══════════════ 14. PRÓXIMOS PASSOS ══════════════ -->
+<section>
+  <h2>Próximos Passos</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Prioridade — melhorar o modelo</h3>
+      <ul>
+        <li>Substituir Random Forest por <strong>XGBoost / LightGBM</strong> — melhor para séries temporais financeiras</li>
+        <li>Aumentar threshold para <strong>≥ 65%</strong> de confiança — menos trades, precision maior</li>
+        <li>Adicionar <strong>funding rates e open interest</strong> como features</li>
+      </ul>
+      <div class="callout" style="font-size:0.72em;margin-top:10px;">
+        <strong>Meta:</strong> precision ≥ 33.3% → Kelly Criterion passa a funcionar
+        → sistema tem edge estatístico positivo por trade.
+      </div>
+    </div>
+    <div>
+      <h3>Sistema &amp; Infraestrutura</h3>
+      <ul>
+        <li><strong>Trailing stop</strong> — protege lucros em tendências prolongadas</li>
+        <li><span class="tag green">✓ Done</span> Deploy em cloud (<strong>Railway</strong>) — operacional 24/7</li>
+        <li>Alertas por <strong>Telegram/Discord</strong> quando trade é executado</li>
+      </ul>
+      <div class="callout blue" style="font-size:0.72em;margin-top:10px;">
+        Sistema já operacional em Railway com dashboard público. Próxima barreira é elevar precision acima do break-even para live trading.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg blue">Um passo de cada vez: primeiro precision &gt; 33%, depois Kelly, depois capital real.</div>
+</section>
+
+<!-- ══════════════ 15. REFERÊNCIAS ══════════════ -->
+<section>
+  <h2>Referências</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Algoritmos &amp; ML</h3>
+      <ul>
+        <li>Breiman, L. (2001). <em>Random Forests.</em> Machine Learning, 45(1), 5–32.</li>
+        <li>Prado, M. L. (2018). <em>Advances in Financial Machine Learning.</em> Wiley.</li>
+        <li>Chan, E. P. (2013). <em>Algorithmic Trading: Winning Strategies.</em> Wiley.</li>
+        <li>Kelly, J. L. (1956). <em>A New Interpretation of Information Rate.</em> Bell System Technical Journal.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Ferramentas &amp; APIs</h3>
+      <ul>
+        <li>Alpaca Markets API — <span class="muted">docs.alpaca.markets</span></li>
+        <li>Scikit-learn — Pedregosa et al. (2011). JMLR, 12, 2825–2830.</li>
+        <li>Google Gemini Flash — <span class="muted">ai.google.dev</span></li>
+        <li>Plotly.js — <span class="muted">plotly.com/javascript</span></li>
+        <li>Railway Cloud Platform — <span class="muted">railway.app</span></li>
+      </ul>
+      <div class="callout blue" style="font-size:0.7em;margin-top:10px;">
+        <strong>Indicadores técnicos:</strong> Wilder, J. W. (1978). <em>New Concepts in Technical Trading Systems.</em>
+        — base para ATR e RSI usados no feature engineering.
+      </div>
+    </div>
+  </div>
+  <div class="key-msg">Todos os dados usados são históricos públicos via Alpaca — sem dados proprietários.</div>
+</section>
+
+<!-- ══════════════ 17. Q&A ══════════════ -->
+<section>
+  <div style="text-align:center;padding:20px 0 10px;">
+    <div class="cover-logo" style="font-size:2.2em;margin-bottom:14px;">ISLA Bot</div>
+    <h2 style="border:none;font-size:1.6em;text-align:center;margin-bottom:6px;">Obrigado</h2>
+    <p style="color:var(--muted);font-size:0.85em;text-align:center;margin-bottom:20px;">Questões &amp; Discussão</p>
+    <div class="grid-4" style="max-width:680px;margin:0 auto 18px;text-align:left;">
+      <div class="card" style="text-align:center;">
+        <div class="card-label">Retorno Bot</div>
+        <div class="card-val red">−0.50%</div>
+        <div class="card-desc">6 meses</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="card-label">Buy &amp; Hold</div>
+        <div class="card-val red">−10.74%</div>
+        <div class="card-desc">BTC mesmo período</div>
+      </div>
+      <div class="card" style="text-align:center;border-color:rgba(63,185,80,.4);">
+        <div class="card-label">Outperformance</div>
+        <div class="card-val green">+10.25%</div>
+        <div class="card-desc">vantagem real</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="card-label">Win Rate</div>
+        <div class="card-val green">52.2%</div>
+        <div class="card-desc">23 trades</div>
+      </div>
+    </div>
+    <p style="font-size:0.62em;color:rgba(139,148,158,.55);margin:0;">
+      Raphael Malburg · André Neves · Vasco · Beatriz Ferreira<br>
+      Engenharia de Software e IA · Março 2026<br>
+      ⚠ Projeto académico · Não é recomendação de investimento · Paper trading apenas
+    </p>
+  </div>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  slideNumber: 'c/t',
+  transition: 'fade',
+  transitionSpeed: 'fast',
+  backgroundTransition: 'none',
+  controls: true,
+  progress: true,
+  center: false,
+  width: 1200,
+  height: 700,
+  margin: 0.03,
+  minScale: 0.2,
+  maxScale: 2.0,
+});
+</script>
+</body>
+</html>

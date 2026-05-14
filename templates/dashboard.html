@@ -1,0 +1,1673 @@
+{% extends "_base.html" %}
+{% block title %}Dashboard — ISLA Bot{% endblock %}
+
+{% block content %}
+
+<!-- ── Bot Health Bar ───────────────────────────────────────────────────── -->
+<div id="health-bar" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;">
+  <!-- health dot + label -->
+  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+    <span id="health-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;
+      background:var(--green);animation:live-pulse 2s infinite;"></span>
+    <span id="health-label" style="font-size:11px;font-weight:700;color:var(--green);
+      text-transform:uppercase;letter-spacing:.5px;">Bot Active</span>
+  </div>
+  <div style="width:1px;height:16px;background:var(--border);flex-shrink:0;"></div>
+  <!-- next candle countdown -->
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
+    <span>Next candle close in</span>
+    <span id="countdown-display" style="font-family:monospace;font-weight:700;
+      color:var(--text);background:var(--bg);border:1px solid var(--border);
+      border-radius:4px;padding:1px 7px;font-size:12px;">--:--</span>
+  </div>
+  <div style="width:1px;height:16px;background:var(--border);flex-shrink:0;"></div>
+  <!-- last updated -->
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-left:auto;">
+    <span id="last-updated">Connecting…</span>
+  </div>
+</div>
+
+<!-- Alerts -->
+<div id="alert-drift" class="alert alert-yellow" {% if not (run and run.drift_warning) %}style="display:none"{% endif %}>
+  ⚠ Model drift detected — average prediction confidence is below threshold.
+</div>
+<div id="alert-cb" class="alert alert-red" {% if not (run and run.action == 'CIRCUIT_BREAKER') %}style="display:none"{% endif %}>
+  ⛔ Circuit breaker active — daily loss limit reached. Trading halted.
+</div>
+
+<!-- ── Stat cards ──────────────────────────────────────────────────────── -->
+<div class="grid-4">
+  <!-- BTC Price + Volatility Regime -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="card-label">BTC Price</div>
+      <span id="vol-regime-badge" class="vol-badge vol-normal">Normal Vol</span>
+    </div>
+    <div class="card-value" id="val-btc-price">${{ "%.2f"|format(run.btc_close or 0) }}</div>
+    <div class="card-sub">ATR: <span id="val-atr-pct">—</span> · Last {{ timeframe_hours }}H close</div>
+  </div>
+
+  <!-- Signal + confidence sparkline -->
+  <div class="card">
+    <div class="card-label">Signal</div>
+    {% if run and run.prediction_label == 'LONG' %}
+      <div class="card-value green" id="val-signal">LONG</div>
+    {% else %}
+      <div class="card-value muted" id="val-signal">FLAT</div>
+    {% endif %}
+    <div class="card-sub" id="val-confidence">Confidence: {{ "%.1f"|format((run.confidence or 0)*100) }}%</div>
+    <div id="chart-confidence-spark" style="height:32px;margin-top:4px;"></div>
+  </div>
+
+  <!-- Sentiment + last 5 history dots -->
+  <div class="card">
+    <div class="card-label">Sentiment</div>
+    {% set s = run.sentiment_score or 0 %}
+    {% if s >= 0.2 %}
+      <div class="card-value green" id="val-sentiment">{{ "%.2f"|format(s) }}</div>
+    {% elif s <= -0.2 %}
+      <div class="card-value red" id="val-sentiment">{{ "%.2f"|format(s) }}</div>
+    {% else %}
+      <div class="card-value muted" id="val-sentiment">{{ "%.2f"|format(s) }}</div>
+    {% endif %}
+    <div style="display:flex;align-items:center;gap:5px;margin-top:5px;">
+      <span style="font-size:10px;color:var(--muted);">last 5:</span>
+      <div id="sentiment-dots" style="display:flex;gap:4px;"></div>
+    </div>
+  </div>
+
+  <!-- Equity + daily PnL mini chart -->
+  <div class="card">
+    <div class="card-label">Equity</div>
+    <div class="card-value" id="val-equity">${{ "%.2f"|format(run.equity or 0) }}</div>
+    {% set pnl = run.pnl_today or 0 %}
+    <div class="card-sub {{ 'green' if pnl >= 0 else 'red' }}" id="val-pnl">
+      {{ "%+.2f"|format(pnl) }} today ({{ "%+.2f"|format(run.pnl_today_pct or 0) }}%)
+    </div>
+    <div id="chart-daily-pnl" style="height:32px;margin-top:4px;"></div>
+  </div>
+</div>
+
+<!-- ── Candlestick chart ───────────────────────────────────────────────── -->
+<div class="chart-wrap">
+  <div id="chart-candle" style="height:420px;"></div>
+</div>
+
+<!-- ── RSI + MACD ─────────────────────────────────────────────────────── -->
+<div class="grid-2">
+  <div class="chart-wrap" style="margin-bottom:0;">
+    <div id="chart-rsi" style="height:180px;"></div>
+  </div>
+  <div class="chart-wrap" style="margin-bottom:0;">
+    <div id="chart-macd" style="height:180px;"></div>
+  </div>
+</div>
+<div style="margin-bottom:20px;"></div>
+
+<!-- ── Open position ──────────────────────────────────────────────────── -->
+<div class="grid-2" style="margin-bottom:16px;">
+  <div class="card">
+    <div class="section-title">Open Position</div>
+    <div id="position-content">
+      {% if active_positions %}
+        {% for p in active_positions %}
+        <table>
+          <tr><th>Symbol</th><td>{{ p.symbol }}</td></tr>
+          <tr><th>Qty</th><td>{{ "%.6f"|format(p.qty) }}</td></tr>
+          <tr><th>Entry</th><td>${{ "%.2f"|format(p.avg_entry_price) }}</td></tr>
+          <tr><th>Current</th><td>${{ "%.2f"|format(p.current_price) }}</td></tr>
+          <tr><th>Unrealized P&L</th>
+            <td class="{{ 'green' if p.unrealized_pl >= 0 else 'red' }}">
+              ${{ "%.2f"|format(p.unrealized_pl) }} ({{ "%.2f"|format(p.unrealized_plpc) }}%)
+            </td>
+          </tr>
+          {% if p.sl_price %}<tr><th>Stop Loss</th><td class="red">${{ "%.2f"|format(p.sl_price) }}</td></tr>{% endif %}
+          {% if p.tp_price %}<tr><th>Take Profit</th><td class="green">${{ "%.2f"|format(p.tp_price) }}</td></tr>{% endif %}
+        </table>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="font-size:13px;margin-top:8px;">No open position</p>
+      {% endif %}
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn btn-red" onclick="killSwitch()">Kill Switch</button>
+    </div>
+  </div>
+
+  <!-- Live stats summary -->
+  <div class="card">
+    <div class="section-title">Account Summary</div>
+    <table style="font-size:13px;" id="account-summary-table">
+      <tr><th>Total Trades</th><td id="sum-total">{{ stats.closed_trades }}</td></tr>
+      <tr><th>Win Rate</th>
+        <td id="sum-winrate" class="{{ 'green' if stats.win_rate >= 50 else 'yellow' }}">
+          {{ "%.1f"|format(stats.win_rate) }}%
+          <span class="muted" style="font-size:11px;">({{ stats.won_trades }}W / {{ stats.lost_trades }}L)</span>
+        </td>
+      </tr>
+      <tr><th>Total P&L</th>
+        <td id="sum-pnl" class="{{ 'green' if stats.total_pnl >= 0 else 'red' }}">
+          {{ "%+.2f"|format(stats.total_pnl) }}
+        </td>
+      </tr>
+      <tr><th>Avg Win</th><td id="sum-avgwin" class="green">+${{ "%.2f"|format(stats.avg_win) }}</td></tr>
+      <tr><th>Avg Loss</th><td id="sum-avgloss" class="red">−${{ "%.2f"|format(stats.avg_loss) }}</td></tr>
+      <tr><th>Profit Factor</th>
+        {% set pf = (stats.avg_win / stats.avg_loss) if stats.avg_loss > 0 else 0 %}
+        <td id="sum-pf" class="{{ 'green' if pf >= 1.5 else 'yellow' if pf >= 1 else 'red' }}">{{ "%.2f"|format(pf) if pf > 0 else '—' }}</td>
+      </tr>
+      <tr><th>Today</th>
+        <td id="sum-today" class="{{ 'green' if stats_today.pnl >= 0 else 'red' }}">
+          {{ "%+.2f"|format(stats_today.pnl) }}
+          <span class="muted" style="font-size:11px;">{{ stats_today.won }}W / {{ stats_today.lost }}L</span>
+        </td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- ── Live Trade Log ─────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div class="section-title" style="margin:0;">Live Trade Log</div>
+    <a href="/api/trades.csv" style="font-size:11px;color:var(--muted);text-decoration:none;">↓ Export CSV</a>
+  </div>
+  <div id="trades-content" style="max-height:320px;overflow-y:auto;">
+    {% if closed_trades %}
+    {% set max_abs = namespace(v=0.01) %}
+    {% for t in closed_trades %}{% if (t.pnl_percent or 0)|abs > max_abs.v %}{% set max_abs.v = (t.pnl_percent or 0)|abs %}{% endif %}{% endfor %}
+    <table>
+      <thead><tr><th>Entry Time</th><th>Exit Time</th><th>Entry $</th><th>Exit $</th><th>P&amp;L %</th><th>P&amp;L $</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for t in closed_trades %}
+        {% set win = (t.pnl_dollars or 0) >= 0 %}
+        {% set cls = 'green' if win else 'red' %}
+        {% set barw = ((t.pnl_percent or 0)|abs / max_abs.v * 60)|int %}
+        {% set reason = t.exit_reason or '' %}
+        <tr>
+          <td class="muted" style="font-size:11px;white-space:nowrap">{{ (t.entry_time or '')[:16].replace('T',' ') }}</td>
+          <td class="muted" style="font-size:11px;white-space:nowrap">{{ (t.exit_time or '')[:16].replace('T',' ') }}</td>
+          <td>${{ "%.0f"|format(t.entry_price or 0) }}</td>
+          <td>${{ "%.0f"|format(t.exit_price or 0) }}</td>
+          <td class="{{ cls }}">{{ "%+.2f"|format(t.pnl_percent or 0) }}%</td>
+          <td>
+            <div class="pnl-bar-wrap">
+              <div class="pnl-bar" style="width:{{ barw }}px;background:{{ '#3fb950' if win else '#f85149' }};"></div>
+              <span class="{{ cls }}">{{ "%+.2f"|format(t.pnl_dollars or 0) }}</span>
+            </div>
+          </td>
+          <td>{% if 'TP' in reason %}<span class="badge badge-green">TP</span>{% elif 'SL' in reason %}<span class="badge badge-red">SL</span>{% elif 'MAX' in reason or 'HOLD' in reason %}<span class="badge badge-yellow">MAX HOLD</span>{% elif 'KILL' in reason %}<span class="badge badge-red">KILL</span>{% else %}<span class="badge badge-muted">{{ reason or '—' }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted" style="font-size:13px;margin-top:8px;">No closed trades yet</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Last run ───────────────────────────────────────────────────────── -->
+<div class="card" id="last-run-card" style="margin-top:0;{% if not run %}display:none;{% endif %}">
+  <div class="section-title">Last Run</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+    <span class="muted" id="run-timestamp">{{ run.timestamp or '—' if run else '—' }}</span>
+    <span class="badge {{ 'badge-green' if run and run.action == 'BUY_ORDER_SENT' else 'badge-muted' }}" id="run-action">
+      {{ run.action or '—' if run else '—' }}
+    </span>
+    <span class="red" style="font-size:12px;" id="run-error">{% if run and run.error %}{{ run.error }}{% endif %}</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     6-MONTH PERFORMANCE SHOWCASE
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="dash-section-label" style="display:flex;justify-content:space-between;align-items:center;">
+  <span>6-Month Simulated Performance</span>
+  <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">
+    Walk-forward backtest · current model &amp; parameters · not real trading history
+    <button class="btn" id="btn-regen-showcase" onclick="regenShowcase()" style="margin-left:10px;padding:2px 10px;font-size:11px;">↻ Regenerate</button>
+  </span>
+</div>
+
+<!-- Metrics strip -->
+<div class="showcase-metrics" id="showcase-metrics">
+  <div class="sc-metric">
+    <div class="sc-label">Strategy Return</div>
+    <div class="sc-val" id="sc-total-return">—</div>
+    <div class="sc-sub">past 6 months</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Buy &amp; Hold</div>
+    <div class="sc-val muted" id="sc-bh-return">—</div>
+    <div class="sc-sub">BTC price change</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Outperformance</div>
+    <div class="sc-val green" id="sc-outperf">—</div>
+    <div class="sc-sub">vs buy &amp; hold</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Sharpe Ratio</div>
+    <div class="sc-val" id="sc-sharpe">—</div>
+    <div class="sc-sub">&gt;1 = good</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Max Drawdown</div>
+    <div class="sc-val red" id="sc-maxdd">—</div>
+    <div class="sc-sub">worst peak→trough</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Win Rate</div>
+    <div class="sc-val" id="sc-winrate">—</div>
+    <div class="sc-sub" id="sc-trades">— trades</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Profit Factor</div>
+    <div class="sc-val" id="sc-pf">—</div>
+    <div class="sc-sub">&gt;1.5 = solid</div>
+  </div>
+  <div class="sc-metric">
+    <div class="sc-label">Avg Win / Loss</div>
+    <div class="sc-val" id="sc-wl">—</div>
+    <div class="sc-sub">per trade ($)</div>
+  </div>
+</div>
+
+<!-- Equity curve chart -->
+<div class="chart-wrap">
+  <div id="chart-showcase" style="height:340px;"></div>
+</div>
+
+<!-- Trade log table -->
+<div class="card" style="margin-bottom:0;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div class="section-title" style="margin:0;">Simulated Trade Log</div>
+    <span class="muted" style="font-size:11px;" id="sc-generated-at"></span>
+  </div>
+  <div id="showcase-trade-table" style="max-height:320px;overflow-y:auto;">
+    <p class="muted" style="font-size:13px;">Loading…</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     HOW THE BOT WORKS
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="dash-section-label">How ISLA Bot Works</div>
+
+<!-- Pipeline flow -->
+<div class="pipeline-wrap">
+  <div class="pipe-step">
+    <div class="pipe-num">1</div>
+    <div class="pipe-body">
+      <div class="pipe-title">Market Data</div>
+      <div class="pipe-desc">Alpaca API pulls {{ timeframe_hours }}H OHLCV candles for BTC/USD (90-day window)</div>
+    </div>
+  </div>
+  <div class="pipe-arrow">›</div>
+  <div class="pipe-step">
+    <div class="pipe-num">2</div>
+    <div class="pipe-body">
+      <div class="pipe-title">Feature Engineering</div>
+      <div class="pipe-desc">17 technical indicators computed — RSI, MACD, EMA, Bollinger Bands, ATR, OBV and more</div>
+    </div>
+  </div>
+  <div class="pipe-arrow">›</div>
+  <div class="pipe-step accent-blue">
+    <div class="pipe-num blue">3</div>
+    <div class="pipe-body">
+      <div class="pipe-title">ML Prediction</div>
+      <div class="pipe-desc">Random Forest classifies: will TP be hit before SL within {{ bot_config.max_hold_candles }}H? → LONG or FLAT + confidence</div>
+    </div>
+  </div>
+  <div class="pipe-arrow">›</div>
+  <div class="pipe-step">
+    <div class="pipe-num">4</div>
+    <div class="pipe-body">
+      <div class="pipe-title">Sentiment Gate</div>
+      <div class="pipe-desc">News headlines scored –1 → +1 by Gemini LLM. Blocks entry if market is very bearish</div>
+    </div>
+  </div>
+  <div class="pipe-arrow">›</div>
+  <div class="pipe-step">
+    <div class="pipe-num">5</div>
+    <div class="pipe-body">
+      <div class="pipe-title">Risk Controls</div>
+      <div class="pipe-desc">Circuit breaker · ATR-based position sizing · {{ (bot_config.max_risk_per_trade * 100)|int }}% max risk per trade · {{ (bot_config.daily_loss_limit_pct * 100)|int }}% daily loss limit</div>
+    </div>
+  </div>
+  <div class="pipe-arrow">›</div>
+  <div class="pipe-step accent-green">
+    <div class="pipe-num green">6</div>
+    <div class="pipe-body">
+      <div class="pipe-title">Execution</div>
+      <div class="pipe-desc">Market BUY · stop-limit SL at {{ bot_config.sl_atr_mult }}×ATR below entry · limit TP at {{ bot_config.tp_atr_mult }}×ATR above entry</div>
+    </div>
+  </div>
+</div>
+
+<!-- Trade trigger logic -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="section-title">Trade Trigger Logic</div>
+  <div class="trigger-logic">
+    <div class="trigger-row">
+      <span class="trigger-kw">IF</span>
+      <span class="badge badge-green">prediction == LONG</span>
+      <span class="trigger-kw">AND</span>
+      <span class="badge badge-blue">confidence ≥ {{ (bot_config.confidence_threshold * 100)|int }}%</span>
+      <span class="trigger-kw">AND</span>
+      <span class="badge badge-yellow">sentiment ≥ {{ bot_config.sentiment_floor }}</span>
+      <span class="trigger-kw">AND</span>
+      <span class="badge badge-muted">no open position</span>
+    </div>
+    <div class="trigger-then">
+      → <span class="green" style="font-weight:600;">BUY</span>
+      <span class="muted"> with {{ (bot_config.max_risk_per_trade * 100)|int }}% risk per trade · SL = entry − {{ bot_config.sl_atr_mult }}×ATR · TP = entry + {{ bot_config.tp_atr_mult }}×ATR</span>
+    </div>
+    <div class="trigger-then" style="margin-top:6px;">
+      → <span class="red" style="font-weight:600;">CLOSE</span>
+      <span class="muted"> if already positioned and signal flips to FLAT, or SL/TP/max-hold hit (app-side watchdog every 10s)</span>
+    </div>
+  </div>
+</div>
+
+<!-- Detailed decision flow -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="section-title">Full Decision Flow — What Happens at Every {{ timeframe_hours }}H Candle Close</div>
+  <div class="flow-steps">
+
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-body">
+        <div class="flow-title">Market Data Fetch</div>
+        <div class="flow-desc">
+          Alpaca API returns the last 90 days of {{ timeframe_hours }}H OHLCV candles for BTC/USD (~2,160 bars).
+          The most recent closed bar is used as the decision bar — the current forming candle is ignored.
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-body">
+        <div class="flow-title">Feature Engineering (17 indicators)</div>
+        <div class="flow-desc">
+          Computed on every bar: <span class="tag">RSI-14</span> <span class="tag">MACD</span> <span class="tag">MACD signal</span> <span class="tag">MACD hist</span>
+          <span class="tag">EMA-20</span> <span class="tag">EMA-50</span> <span class="tag">BB high/low/width</span>
+          <span class="tag">ATR-14</span> <span class="tag">OBV</span> <span class="tag">Volume SMA ratio</span>
+          <span class="tag">Log return</span> <span class="tag">Candle body ratio</span> <span class="tag">EMA-20 slope</span>
+          <span class="tag">Dist EMA-20</span> <span class="tag">Dist EMA-50</span>.
+          All features are StandardScaler-normalized before prediction.
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-body">
+        <div class="flow-title">ML Prediction</div>
+        <div class="flow-desc">
+          Random Forest (200 trees, max depth 8) outputs a probability for label <strong class="green">1</strong>
+          = "TP will be hit before SL within {{ bot_config.max_hold_candles }} candles ({{ bot_config.max_hold_candles * bot_config.timeframe_hours }}H)."
+          If probability ≥ <strong>{{ (bot_config.confidence_threshold * 100)|int }}%</strong> → signal = <strong class="green">LONG</strong>.
+          Otherwise → <strong class="muted">FLAT</strong>.
+          Top features: OBV, ATR-14, EMA-20, EMA-50 (see chart below).
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-body">
+        <div class="flow-title">Drift Detection</div>
+        <div class="flow-desc">
+          Checks the average confidence of the last {{ bot_config.max_hold_candles }} runs.
+          If it falls below <strong>50%</strong>, a drift warning is raised on the dashboard — the model may need retraining.
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div class="flow-body">
+        <div class="flow-title">Sentiment Gate</div>
+        <div class="flow-desc">
+          {% if bot_config.sentiment_floor is defined %}
+          Recent BTC headlines are fetched via Alpaca news and scored –1 → +1 by Gemini Flash LLM.
+          A score below <strong>{{ bot_config.sentiment_floor }}</strong> blocks entry regardless of ML signal
+          (avoids buying into strongly bearish news events).
+          If the OpenRouter API key is not set, this gate is skipped.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">6</div>
+      <div class="flow-body">
+        <div class="flow-title">Circuit Breaker</div>
+        <div class="flow-desc">
+          Checks today's realized P&amp;L from the database. If cumulative daily loss exceeds
+          <strong>{{ (bot_config.daily_loss_limit_pct * 100)|int }}%</strong> of starting equity, all trading halts for the rest of the day.
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">7</div>
+      <div class="flow-body">
+        <div class="flow-title">Position Sizing</div>
+        <div class="flow-desc">
+          Fixed-fraction risk: <code>position_value = equity × {{ (bot_config.max_risk_per_trade * 100)|int }}% ÷ stop_pct</code>
+          where <code>stop_pct = ATR × {{ bot_config.sl_atr_mult }} ÷ price</code>.
+          Result is clamped between 5% and 98% of available buying power.
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step accent-green">
+      <div class="flow-num green">8</div>
+      <div class="flow-body">
+        <div class="flow-title">Execution &amp; Exit Management</div>
+        <div class="flow-desc">
+          <strong class="green">Entry:</strong> market BUY on Alpaca + a <em>disaster stop</em> limit order at <strong>{{ bot_config.sl_atr_mult * 3 }}×ATR</strong> below entry (crash safety net only).<br>
+          <strong class="red">Exit (app-side, every 10s):</strong>
+          <span class="tag red-tag">SL</span> close at <strong>{{ bot_config.sl_atr_mult }}×ATR</strong> below entry ·
+          <span class="tag green-tag">TP</span> close at <strong>{{ bot_config.tp_atr_mult }}×ATR</strong> above entry ·
+          <span class="tag">Max hold</span> close after {{ bot_config.max_hold_candles }} candles ({{ bot_config.max_hold_candles * bot_config.timeframe_hours }}H) ·
+          <span class="tag">Signal flip</span> close if FLAT at next candle close.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── ML model metrics + feature importance ─────────────────────────── -->
+<div class="dash-section-label">ML Model</div>
+<div class="grid-2">
+
+  <!-- Metrics -->
+  <div class="card">
+    <div class="section-title">Model Performance</div>
+    {% if ml_metrics %}
+    <div class="metric-grid">
+      {% set acc = ml_metrics.accuracy %}
+      {% set prec = ml_metrics.precision %}
+      {% set rec = ml_metrics.recall %}
+      {% set f1 = ml_metrics.f1 %}
+      <div class="metric-item">
+        <div class="metric-label">Accuracy</div>
+        <div class="metric-val {{ 'green' if acc >= 0.65 else 'yellow' }}">{{ "%.1f"|format(acc*100) }}%</div>
+        <div class="metric-note">% correct predictions</div>
+      </div>
+      <div class="metric-item">
+        <div class="metric-label">Precision</div>
+        <div class="metric-val {{ 'green' if prec >= 0.33 else 'red' }}">{{ "%.1f"|format(prec*100) }}%</div>
+        <div class="metric-note">win rate when LONG signal fires · break-even = 33%</div>
+      </div>
+      <div class="metric-item">
+        <div class="metric-label">Recall</div>
+        <div class="metric-val {{ 'green' if rec >= 0.15 else 'yellow' }}">{{ "%.1f"|format(rec*100) }}%</div>
+        <div class="metric-note">% of profitable trades caught</div>
+      </div>
+      <div class="metric-item">
+        <div class="metric-label">F1 Score</div>
+        <div class="metric-val {{ 'green' if f1 >= 0.20 else 'yellow' }}">{{ "%.3f"|format(f1) }}</div>
+        <div class="metric-note">harmonic mean of precision &amp; recall</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <div class="section-title" style="margin-bottom:8px;">Training Details</div>
+      <table style="font-size:12px;">
+        <tr><th>Target</th><td>TP hit before SL within {{ bot_config.max_hold_candles }}H</td></tr>
+        <tr><th>Algorithm</th><td>Random Forest (200 trees, depth 8)</td></tr>
+        <tr><th>Train samples</th><td>{{ ml_metrics.train_samples | default('—') }}</td></tr>
+        <tr><th>Test samples</th><td>{{ ml_metrics.test_samples | default('—') }}</td></tr>
+        <tr><th>Features</th><td>{{ ml_metrics.feature_count | default(17) }}</td></tr>
+        <tr><th>Timeframe</th><td>{{ timeframe_hours }}H candles</td></tr>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="font-size:13px;margin-top:8px;">No model metrics yet — run the pipeline first.</p>
+    {% endif %}
+  </div>
+
+  <!-- Feature importance chart -->
+  <div class="card">
+    <div class="section-title">Feature Importance</div>
+    <div id="chart-feat-imp" style="height:340px;"></div>
+  </div>
+</div>
+
+<!-- ── Settings Panel ──────────────────────────────────────────────────── -->
+<div class="dash-section-label" style="display:flex;justify-content:space-between;align-items:center;">
+  <span>Configuration</span>
+  <button class="btn" onclick="toggleSettings()" id="settings-toggle-btn"
+    style="font-size:11px;padding:2px 10px;">⚙ Edit</button>
+</div>
+
+<!-- Read-only view -->
+<div class="card" style="margin-bottom:8px;" id="config-readonly">
+  <div class="config-grid">
+    <div class="config-item"><div class="config-label">Timeframe</div><div class="config-val blue">{{ bot_config.timeframe_hours }}H</div></div>
+    <div class="config-item"><div class="config-label">Confidence Threshold</div><div class="config-val" id="disp-conf">{{ (bot_config.confidence_threshold * 100)|int }}%</div></div>
+    <div class="config-item"><div class="config-label">Sentiment Floor</div><div class="config-val" id="disp-sent">{{ bot_config.sentiment_floor }}</div></div>
+    <div class="config-item"><div class="config-label">Stop Loss</div><div class="config-val red" id="disp-sl">{{ bot_config.sl_atr_mult }}× ATR</div></div>
+    <div class="config-item"><div class="config-label">Take Profit</div><div class="config-val green" id="disp-tp">{{ bot_config.tp_atr_mult }}× ATR</div></div>
+    <div class="config-item"><div class="config-label">Risk / Trade</div><div class="config-val" id="disp-risk">{{ (bot_config.max_risk_per_trade * 100)|int }}%</div></div>
+    <div class="config-item"><div class="config-label">Daily Loss Limit</div><div class="config-val" id="disp-dll">{{ (bot_config.daily_loss_limit_pct * 100)|int }}%</div></div>
+    <div class="config-item"><div class="config-label">Max Hold Candles</div><div class="config-val">{{ bot_config.max_hold_candles }} ({{ bot_config.max_hold_candles * bot_config.timeframe_hours }}H)</div></div>
+  </div>
+</div>
+
+<!-- Edit form (hidden by default) -->
+<div class="card" style="margin-bottom:8px;display:none;" id="config-edit">
+  <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">
+    Changes apply to the next bot run. Persisted to .env on Railway.
+  </div>
+  <div class="config-grid" style="gap:12px;">
+    <div class="config-item">
+      <div class="config-label">Confidence Threshold (%)</div>
+      <input class="cfg-input" type="number" id="cfg-conf" min="40" max="95" step="1"
+        value="{{ (bot_config.confidence_threshold * 100)|int }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">Sentiment Floor (−1 → +1)</div>
+      <input class="cfg-input" type="number" id="cfg-sent" min="-1" max="1" step="0.1"
+        value="{{ bot_config.sentiment_floor }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">SL ATR Multiplier</div>
+      <input class="cfg-input" type="number" id="cfg-sl" min="0.5" max="5" step="0.1"
+        value="{{ bot_config.sl_atr_mult }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">TP ATR Multiplier</div>
+      <input class="cfg-input" type="number" id="cfg-tp" min="0.5" max="10" step="0.1"
+        value="{{ bot_config.tp_atr_mult }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">Max Risk per Trade (%)</div>
+      <input class="cfg-input" type="number" id="cfg-risk" min="1" max="25" step="1"
+        value="{{ (bot_config.max_risk_per_trade * 100)|int }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">Daily Loss Limit (%)</div>
+      <input class="cfg-input" type="number" id="cfg-dll" min="1" max="50" step="1"
+        value="{{ (bot_config.daily_loss_limit_pct * 100)|int }}" />
+    </div>
+    <div class="config-item">
+      <div class="config-label">Max Hold Candles</div>
+      <input class="cfg-input" type="number" id="cfg-hold" min="1" max="72" step="1"
+        value="{{ bot_config.max_hold_candles }}" />
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;margin-top:14px;">
+    <button class="btn" style="background:rgba(63,185,80,.15);border-color:rgba(63,185,80,.4);color:var(--green);"
+      onclick="saveSettings()">✓ Save Changes</button>
+    <button class="btn" onclick="toggleSettings()">✕ Cancel</button>
+    <span id="settings-msg" style="font-size:12px;color:var(--muted);align-self:center;"></span>
+  </div>
+</div>
+
+<!-- ── Log Viewer ──────────────────────────────────────────────────────── -->
+<div class="dash-section-label" style="display:flex;justify-content:space-between;align-items:center;">
+  <span>Live Logs</span>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="log-autoscroll" checked style="cursor:pointer;"> Auto-scroll
+    </label>
+    <button class="btn" onclick="fetchLogs()" style="font-size:11px;padding:2px 10px;">↻ Refresh</button>
+  </div>
+</div>
+<div class="card" style="padding:0;margin-bottom:8px;">
+  <div id="log-viewer" style="
+    background:#0d1117; border-radius:8px; padding:12px 16px;
+    max-height:280px; overflow-y:auto; font-family:monospace;
+    font-size:11px; line-height:1.6; color:#8b949e;
+  ">
+    <span style="color:var(--muted);">Loading logs…</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     STYLES
+═══════════════════════════════════════════════════════════════════════ -->
+<style>
+  @keyframes live-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  /* Section labels */
+  .dash-section-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted);
+    margin: 28px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Pipeline */
+  .pipeline-wrap {
+    display: flex; align-items: stretch; gap: 0;
+    margin-bottom: 20px; overflow-x: auto;
+  }
+  .pipe-step {
+    flex: 1; min-width: 130px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 14px 14px 12px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .pipe-step.accent-blue { border-color: rgba(88,166,255,.35); }
+  .pipe-step.accent-green { border-color: rgba(63,185,80,.35); }
+  .pipe-num {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(139,148,158,.15); color: var(--muted);
+    font-size: 11px; font-weight: 700; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .pipe-num.blue  { background: rgba(88,166,255,.2);  color: var(--blue); }
+  .pipe-num.green { background: rgba(63,185,80,.2);   color: var(--green); }
+  .pipe-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .pipe-desc  { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .pipe-arrow {
+    align-self: center; flex-shrink: 0;
+    font-size: 20px; color: var(--border); padding: 0 6px;
+  }
+  @media (max-width: 900px) {
+    .pipeline-wrap { flex-direction: column; }
+    .pipe-arrow { transform: rotate(90deg); align-self: center; }
+  }
+
+  /* Trigger logic */
+  .trigger-logic { font-size: 13px; line-height: 1.8; }
+  .trigger-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .trigger-kw  { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .trigger-then { margin-top: 10px; padding-left: 4px; }
+  .badge-blue { background: rgba(88,166,255,.15); color: var(--blue); }
+  .badge-yellow { background: rgba(210,153,34,.15); color: var(--yellow); }
+
+  /* ML metric boxes */
+  .metric-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .metric-item {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 14px;
+  }
+  .metric-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
+  .metric-val { font-size: 22px; font-weight: 700; line-height: 1.2; }
+  .metric-note { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+
+  /* Showcase metrics strip */
+  .showcase-metrics {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 1100px) { .showcase-metrics { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 600px)  { .showcase-metrics { grid-template-columns: repeat(2, 1fr); } }
+  .sc-metric {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .sc-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
+  .sc-val   { font-size: 20px; font-weight: 700; line-height: 1.2; }
+  .sc-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* Trade tables — shared sticky header */
+  #showcase-trade-table table, #trades-content table { width: 100%; }
+  #showcase-trade-table thead th, #trades-content thead th {
+    position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .pnl-bar-wrap { display: flex; align-items: center; gap: 6px; }
+  .pnl-bar { height: 6px; border-radius: 3px; flex-shrink: 0; }
+
+  /* Decision flow steps */
+  .flow-steps { display: flex; flex-direction: column; gap: 0; }
+  .flow-step {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .flow-step:last-child { border-bottom: none; padding-bottom: 0; }
+  .flow-step.accent-green { background: rgba(63,185,80,.04); margin: 0 -20px; padding: 14px 20px; border-radius: 0 0 8px 8px; }
+  .flow-num {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(139,148,158,.12); color: var(--muted);
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 2px;
+  }
+  .flow-num.green { background: rgba(63,185,80,.2); color: var(--green); }
+  .flow-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+  .flow-desc  { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .flow-desc strong { color: var(--text); }
+  .flow-desc code { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #e6edf3; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px;
+    background: rgba(139,148,158,.12); color: #8b949e; margin: 1px 2px;
+  }
+  .red-tag   { background: rgba(248,81,73,.15);  color: #f85149; }
+  .green-tag { background: rgba(63,185,80,.15);  color: #3fb950; }
+
+  /* Plotly modebar dark theme */
+  .modebar { background: transparent !important; }
+  .modebar-group { background: rgba(22,27,34,0.85) !important; border-radius: 4px !important; }
+  .modebar-btn path { fill: #8b949e !important; }
+  .modebar-btn:hover path { fill: #e6edf3 !important; }
+  .modebar-btn.active path { fill: #58a6ff !important; }
+  /* Range selector buttons */
+  .rangeselector .button rect { fill: #161b22 !important; stroke: #30363d !important; }
+  .rangeselector .button text { fill: #8b949e !important; }
+  .rangeselector .button.active rect { fill: #388bfd22 !important; stroke: #388bfd !important; }
+  .rangeselector .button.active text { fill: #58a6ff !important; }
+  .rangeselector .button:hover rect { fill: #21262d !important; }
+
+  /* Config grid */
+  .config-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  }
+  @media (max-width: 900px) { .config-grid { grid-template-columns: repeat(2, 1fr); } }
+  .config-item { }
+  .config-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
+  .config-val { font-size: 18px; font-weight: 700; }
+
+  /* Settings edit inputs */
+  .cfg-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); padding: 5px 8px;
+    font-size: 14px; font-weight: 600; font-family: monospace;
+    outline: none;
+  }
+  .cfg-input:focus { border-color: var(--blue); }
+
+  /* Log viewer */
+  #log-viewer .log-info    { color: #8b949e; }
+  #log-viewer .log-warning { color: #d2a520; }
+  #log-viewer .log-error   { color: #f85149; }
+  #log-viewer .log-buy     { color: #3fb950; font-weight: 700; }
+  #log-viewer .log-sell    { color: #f85149; font-weight: 700; }
+
+  /* Volatility regime badge */
+  .vol-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; padding: 2px 7px; border-radius: 4px;
+    border: 1px solid;
+  }
+  .vol-low    { color: #58a6ff; border-color: rgba(88,166,255,.4); background: rgba(88,166,255,.1); }
+  .vol-normal { color: #8b949e; border-color: rgba(139,148,158,.3); background: rgba(139,148,158,.08); }
+  .vol-high   { color: #d2a520; border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.1); }
+</style>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════════════════ -->
+<script>
+const layout_base = {
+  paper_bgcolor: '#161b22', plot_bgcolor: '#0d1117',
+  font: {color: '#8b949e', size: 11},
+  margin: {l: 52, r: 80, t: 28, b: 28},
+  xaxis: {gridcolor: '#21262d', showgrid: true, zeroline: false},
+  yaxis: {gridcolor: '#21262d', showgrid: true, zeroline: false},
+};
+
+let lastRunTs = {{ (run.timestamp | tojson) if run and run.timestamp else 'null' }};
+let _lastActivePositions = [];
+let _ohlcvData        = [];   // canonical candle data from last bot run
+let _currentPrice     = {{ active_positions[0].current_price if active_positions else (run.btc_close if run and run.btc_close else 0) }};
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function _getChartXRange() {
+  try {
+    const el = document.getElementById('chart-candle');
+    const r = el && el._fullLayout && el._fullLayout.xaxis && el._fullLayout.xaxis.range;
+    return r ? [...r] : null;
+  } catch(_) { return null; }
+}
+
+function _liveCandleData(ohlcv, price) {
+  if (!ohlcv.length || !price) return ohlcv;
+  const data = ohlcv.slice();
+  const last  = Object.assign({}, data[data.length - 1]);
+  last.close  = price;
+  last.high   = Math.max(last.high != null ? last.high : price, price);
+  last.low    = Math.min(last.low  != null ? last.low  : price, price);
+  data[data.length - 1] = last;
+  return data;
+}
+
+// ── Chart annotations (SL / TP / entry) ──────────────────────────────
+function _buildCandleLayout(positions) {
+  const shapes = [], annotations = [];
+  const pos = positions && positions.length ? positions[0] : null;
+  if (pos) {
+    const entryP = pos.avg_entry_price || 0;
+    const curP = _currentPrice || entryP;
+    const pnlPct = entryP > 0 ? ((curP - entryP) / entryP * 100) : 0;
+    const pnlDollar = entryP > 0 ? (curP - entryP) : 0;
+    const isProfit = pnlDollar >= 0;
+
+    // Entry price line — solid, prominent
+    if (entryP > 0) {
+      shapes.push({
+        type: 'line', xref: 'paper', yref: 'y',
+        x0: 0, x1: 1, y0: entryP, y1: entryP,
+        line: {color: '#f0883e', width: 2},
+      });
+      annotations.push({
+        xref: 'paper', yref: 'y', x: 0.01, y: entryP,
+        text: `ENTRY (LONG)  $${entryP.toFixed(0)}`,
+        showarrow: false, xanchor: 'left',
+        font: {color: '#fff', size: 12, family: 'monospace', weight: 'bold'},
+        bgcolor: '#f0883e', borderpad: 4,
+      });
+    }
+
+    // SL line — dashed red
+    if (pos.sl_price) {
+      shapes.push({
+        type: 'line', xref: 'paper', yref: 'y',
+        x0: 0, x1: 1, y0: pos.sl_price, y1: pos.sl_price,
+        line: {color: '#f85149', dash: 'dash', width: 2},
+      });
+      annotations.push({
+        xref: 'paper', yref: 'y', x: 0.01, y: pos.sl_price,
+        text: `SL  $${pos.sl_price.toFixed(0)}`,
+        showarrow: false, xanchor: 'left',
+        font: {color: '#f85149', size: 11, family: 'monospace'},
+        bgcolor: 'rgba(13,17,23,0.85)', borderpad: 3,
+      });
+    }
+
+    // TP line — dashed green
+    if (pos.tp_price) {
+      shapes.push({
+        type: 'line', xref: 'paper', yref: 'y',
+        x0: 0, x1: 1, y0: pos.tp_price, y1: pos.tp_price,
+        line: {color: '#3fb950', dash: 'dash', width: 2},
+      });
+      annotations.push({
+        xref: 'paper', yref: 'y', x: 0.01, y: pos.tp_price,
+        text: `TP  $${pos.tp_price.toFixed(0)}`,
+        showarrow: false, xanchor: 'left',
+        font: {color: '#3fb950', size: 11, family: 'monospace'},
+        bgcolor: 'rgba(13,17,23,0.85)', borderpad: 3,
+      });
+    }
+
+    // PnL info box — top right corner
+    const pnlColor = isProfit ? '#3fb950' : '#f85149';
+    const pnlSign = isProfit ? '+' : '';
+    annotations.push({
+      xref: 'paper', yref: 'paper',
+      x: 0.98, y: 0.97,
+      text: `<b>TRADE INFO</b><br>Entry: $${entryP.toFixed(0)}<br>Current: $${curP.toFixed(0)}<br><b>${pnlSign}${pnlPct.toFixed(2)}% (${pnlSign}$${Math.abs(pnlDollar).toFixed(2)})</b>`,
+      showarrow: false, xanchor: 'right', yanchor: 'top',
+      font: {color: '#0d1117', size: 11, family: 'monospace'},
+      bgcolor: pnlColor, bordercolor: pnlColor, borderpad: 8, borderwidth: 2,
+      cliponaxis: false,
+    });
+  }
+
+  // Live price tag on right Y-axis
+  if (_currentPrice) {
+    const pos0 = positions && positions.length ? positions[0] : null;
+    const tagColor = pos0
+      ? (_currentPrice >= pos0.avg_entry_price ? '#3fb950' : '#f85149')
+      : '#e6edf3';
+    annotations.push({
+      xref: 'paper', yref: 'y',
+      x: 1.002, y: _currentPrice,
+      text: `  $${Math.round(_currentPrice).toLocaleString('en-US')}  `,
+      showarrow: false, xanchor: 'left',
+      font: {color: '#0d1117', size: 11, family: 'monospace'},
+      bgcolor: tagColor, bordercolor: tagColor, borderpad: 3,
+      cliponaxis: false,
+    });
+  }
+
+  return {
+    ...layout_base,
+    title: {text: 'BTC/USD — {{ timeframe_hours }}H', font: {color: '#e6edf3', size: 13}},
+    xaxis: {...layout_base.xaxis, rangeslider: {visible: false}},
+    yaxis: {...layout_base.yaxis, title: {text: 'Price ($)', standoff: 4}},
+    shapes, annotations,
+  };
+}
+
+function updateChartAnnotations(positions) {
+  _lastActivePositions = positions || [];
+  const range = _getChartXRange();
+  _renderCandleChartWithTrades(range);
+}
+
+// ── Chart configs ─────────────────────────────────────────────────────
+const cfg_main = {
+  responsive: true,
+  displayModeBar: 'hover',
+  displaylogo: false,
+  scrollZoom: true,
+  doubleClick: 'reset+autosize',
+  modeBarButtonsToRemove: ['select2d','lasso2d','toImage','sendDataToCloud'],
+};
+const cfg_sub = {
+  responsive: true,
+  displayModeBar: false,
+  scrollZoom: true,
+  doubleClick: 'reset+autosize',
+};
+
+// ── Charts (full re-render on new bot run data) ───────────────────────
+function renderCharts(ohlcv) {
+  if (!ohlcv || !ohlcv.length) return;
+  _ohlcvData = ohlcv;
+  _renderCandleChartWithTrades(null);   // no range preservation on full data refresh
+
+  const ts = ohlcv.map(d => d.timestamp);
+  const rsiVals = ohlcv.map(d => d.rsi_14      != null ? d.rsi_14      : null);
+  const macdVals= ohlcv.map(d => d.macd        != null ? d.macd        : null);
+  const sigVals = ohlcv.map(d => d.macd_signal != null ? d.macd_signal : null);
+  const histVals= ohlcv.map(d => d.macd_diff   != null ? d.macd_diff   : null);
+
+  Plotly.react('chart-rsi', [
+    {type:'scatter', x:ts, y:ts.map(()=>70), mode:'lines',
+     line:{color:'#f85149',dash:'dot',width:1}, showlegend:false, hoverinfo:'skip'},
+    {type:'scatter', x:ts, y:ts.map(()=>30), mode:'lines',
+     line:{color:'#3fb950',dash:'dot',width:1}, showlegend:false, hoverinfo:'skip'},
+    {type:'scatter', x:ts, y:rsiVals, mode:'lines', name:'RSI',
+     line:{color:'#58a6ff',width:1.5},
+     hoverlabel:{bgcolor:'#161b22',bordercolor:'#30363d',font:{color:'#e6edf3'}}},
+  ], {
+    ...layout_base, dragmode: 'pan',
+    title: {text:'RSI (14)', font:{color:'#e6edf3',size:12}},
+    yaxis: {...layout_base.yaxis, range:[0,100]},
+    showlegend: false,
+  }, cfg_sub);
+
+  Plotly.react('chart-macd', [
+    {type:'bar', x:ts, y:histVals, name:'Histogram',
+     marker:{color: histVals.map(v => v!=null&&v>=0
+       ? 'rgba(63,185,80,.45)':'rgba(248,81,73,.45)')},
+     showlegend:false},
+    {type:'scatter', x:ts, y:macdVals, mode:'lines', name:'MACD',
+     line:{color:'#58a6ff',width:1.5},
+     hoverlabel:{bgcolor:'#161b22',bordercolor:'#30363d',font:{color:'#e6edf3'}}},
+    {type:'scatter', x:ts, y:sigVals, mode:'lines', name:'Signal',
+     line:{color:'#f0883e',dash:'dot',width:1.5}},
+  ], {
+    ...layout_base, dragmode: 'pan',
+    title: {text:'MACD', font:{color:'#e6edf3',size:12}},
+    barmode:'relative', showlegend:false,
+  }, cfg_sub);
+}
+
+// ── Live price update (every 15s poll) ────────────────────────────────
+function updateCurrentPrice(price) {
+  if (!price) return;
+  _currentPrice = price;
+  const el = document.getElementById('val-btc-price');
+  if (el) el.textContent = '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (!_ohlcvData.length) return;
+  _renderCandleChartWithTrades(_getChartXRange());
+}
+
+// ── Feature importance chart ──────────────────────────────────────────
+function renderFeatureImportance(fi) {
+  if (!fi || !Object.keys(fi).length) return;
+  const sorted = Object.entries(fi).sort((a,b) => a[1]-b[1]);
+  const names  = sorted.map(([k]) => k);
+  const vals   = sorted.map(([,v]) => v);
+  Plotly.react('chart-feat-imp', [{
+    type: 'bar', orientation: 'h',
+    x: vals, y: names,
+    marker: {
+      color: vals.map(v => `rgba(63,185,80,${0.3 + v * 5})`),
+      line: {color: 'rgba(63,185,80,.6)', width: 1},
+    },
+    hovertemplate: '<b>%{y}</b><br>Importance: %{x:.4f}<extra></extra>',
+  }], {
+    paper_bgcolor: '#161b22', plot_bgcolor: '#0d1117',
+    font: {color: '#8b949e', size: 11},
+    margin: {l: 110, r: 20, t: 20, b: 30},
+    xaxis: {gridcolor:'#21262d', showgrid:true, zeroline:false},
+    yaxis: {gridcolor:'#21262d', showgrid:false, automargin:true},
+    showlegend: false,
+  }, {responsive:true, displayModeBar:false});
+}
+
+// ── Stat card updates ─────────────────────────────────────────────────
+function updateStatCards(run) {
+  if (!run || run.status === 'waiting') return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const setClass = (id, cls) => { const el = document.getElementById(id); if (el) el.className = cls; };
+
+  const sig = run.prediction_label || 'FLAT';
+  set('val-signal', sig);
+  setClass('val-signal', 'card-value ' + (sig === 'LONG' ? 'green' : 'muted'));
+  set('val-confidence', 'Confidence: ' + ((run.confidence || 0) * 100).toFixed(1) + '%');
+
+  const s = run.sentiment_score || 0;
+  set('val-sentiment', s.toFixed(2));
+  setClass('val-sentiment', 'card-value ' + (s >= 0.2 ? 'green' : s <= -0.2 ? 'red' : 'muted'));
+
+  updateEquityDisplay(run.equity, run.pnl_today, run.pnl_today_pct);
+
+  set('run-timestamp', run.timestamp || '—');
+  const actEl = document.getElementById('run-action');
+  if (actEl) {
+    actEl.textContent = run.action || '—';
+    actEl.className = 'badge ' + (run.action === 'BUY_ORDER_SENT' ? 'badge-green' : 'badge-muted');
+  }
+  set('run-error', run.error || '');
+  const lrc = document.getElementById('last-run-card');
+  if (lrc) lrc.style.display = '';
+
+  const driftEl = document.getElementById('alert-drift');
+  if (driftEl) driftEl.style.display = run.drift_warning ? '' : 'none';
+  const cbEl = document.getElementById('alert-cb');
+  if (cbEl) cbEl.style.display = run.action === 'CIRCUIT_BREAKER' ? '' : 'none';
+}
+
+function updateEquityDisplay(equity, pnl, pnlPct) {
+  const eqEl = document.getElementById('val-equity');
+  if (eqEl) eqEl.textContent = '$' + (equity || 0).toFixed(2);
+  const pnlEl = document.getElementById('val-pnl');
+  if (pnlEl) {
+    const p = pnl || 0, pp = pnlPct || 0;
+    pnlEl.textContent = (p >= 0 ? '+' : '') + p.toFixed(2) + ' today (' + (pp >= 0 ? '+' : '') + pp.toFixed(2) + '%)';
+    pnlEl.className = 'card-sub ' + (p >= 0 ? 'green' : 'red');
+  }
+}
+
+function positionHTML(p) {
+  const cls = p.unrealized_pl >= 0 ? 'green' : 'red';
+  let rows = `
+    <tr><th>Symbol</th><td>${p.symbol}</td></tr>
+    <tr><th>Qty</th><td>${p.qty.toFixed(6)}</td></tr>
+    <tr><th>Entry</th><td>$${p.avg_entry_price.toFixed(2)}</td></tr>
+    <tr><th>Current</th><td>$${p.current_price.toFixed(2)}</td></tr>
+    <tr><th>Unrealized P&amp;L</th><td class="${cls}">$${p.unrealized_pl.toFixed(2)} (${p.unrealized_plpc.toFixed(2)}%)</td></tr>`;
+  if (p.sl_price) rows += `<tr><th>Stop Loss</th><td class="red">$${p.sl_price.toFixed(2)}</td></tr>`;
+  if (p.tp_price) rows += `<tr><th>Take Profit</th><td class="green">$${p.tp_price.toFixed(2)}</td></tr>`;
+  return `<table>${rows}</table>`;
+}
+
+function updatePositions(positions) {
+  const el = document.getElementById('position-content');
+  if (!el) return;
+  el.innerHTML = positions && positions.length
+    ? positions.map(positionHTML).join('')
+    : '<p class="muted" style="font-size:13px;margin-top:8px;">No open position</p>';
+}
+
+function _reasonBadge(reason) {
+  const r = (reason || '').toUpperCase();
+  if (r.includes('TP')) return '<span class="badge badge-green">TP</span>';
+  if (r.includes('SL')) return '<span class="badge badge-red">SL</span>';
+  if (r.includes('KILL')) return '<span class="badge badge-red">KILL</span>';
+  if (r.includes('MAX') || r.includes('HOLD')) return '<span class="badge badge-yellow">MAX HOLD</span>';
+  if (r.includes('CLOSE') || r.includes('FLAT')) return '<span class="badge badge-muted">FLAT</span>';
+  return `<span class="badge badge-muted">${reason || '—'}</span>`;
+}
+
+function updateTrades(trades) {
+  const el = document.getElementById('trades-content');
+  if (!el) return;
+  if (!trades || !trades.length) {
+    el.innerHTML = '<p class="muted" style="font-size:13px;margin-top:8px;">No closed trades yet</p>';
+    return;
+  }
+  const maxAbs = Math.max(...trades.map(t => Math.abs(t.pnl_percent || 0)), 0.01);
+  const rows = trades.map(t => {
+    const p   = t.pnl_dollars || 0;
+    const pct = t.pnl_percent || 0;
+    const win = p >= 0;
+    const cls = win ? 'green' : 'red';
+    const barW = Math.round(Math.abs(pct) / maxAbs * 60);
+    const barClr = win ? '#3fb950' : '#f85149';
+    const entryTs = (t.entry_time || '').slice(0, 16).replace('T', ' ');
+    const exitTs  = (t.exit_time  || '').slice(0, 16).replace('T', ' ');
+    return `<tr>
+      <td class="muted" style="font-size:11px;white-space:nowrap">${entryTs}</td>
+      <td class="muted" style="font-size:11px;white-space:nowrap">${exitTs}</td>
+      <td>$${(t.entry_price||0).toFixed(0)}</td>
+      <td>$${(t.exit_price||0).toFixed(0)}</td>
+      <td class="${cls}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
+      <td><div class="pnl-bar-wrap">
+        <div class="pnl-bar" style="width:${barW}px;background:${barClr};"></div>
+        <span class="${cls}">${p>=0?'+':''}$${Math.abs(p).toFixed(2)}</span>
+      </div></td>
+      <td>${_reasonBadge(t.exit_reason)}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table>
+    <thead><tr><th>Entry Time</th><th>Exit Time</th><th>Entry $</th><th>Exit $</th><th>P&amp;L %</th><th>P&amp;L $</th><th>Reason</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function updateAccountSummary(s, today) {
+  if (!s) return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const setCls = (id, cls) => { const el = document.getElementById(id); if (el) el.className = cls; };
+  set('sum-total', s.closed_trades);
+  const wr = (s.win_rate || 0).toFixed(1) + '% (' + (s.won_trades||0) + 'W / ' + (s.lost_trades||0) + 'L)';
+  set('sum-winrate', wr);
+  setCls('sum-winrate', s.win_rate >= 50 ? 'green' : 'yellow');
+  const pnl = s.total_pnl || 0;
+  set('sum-pnl', (pnl >= 0 ? '+' : '') + pnl.toFixed(2));
+  setCls('sum-pnl', pnl >= 0 ? 'green' : 'red');
+  set('sum-avgwin', '+$' + (s.avg_win || 0).toFixed(2));
+  set('sum-avgloss', '−$' + (s.avg_loss || 0).toFixed(2));
+  const pf = s.avg_loss > 0 ? s.avg_win / s.avg_loss : 0;
+  set('sum-pf', pf > 0 ? pf.toFixed(2) : '—');
+  setCls('sum-pf', pf >= 1.5 ? 'green' : pf >= 1 ? 'yellow' : 'red');
+  if (today) {
+    const tp = today.pnl || 0;
+    set('sum-today', (tp >= 0 ? '+' : '') + tp.toFixed(2) + ' (' + (today.won||0) + 'W / ' + (today.lost||0) + 'L)');
+    setCls('sum-today', tp >= 0 ? 'green' : 'red');
+  }
+}
+
+function setLastUpdated() {
+  const el = document.getElementById('last-updated');
+  if (el) el.textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+// ── Polling ───────────────────────────────────────────────────────────
+async function pollLiveStats() {
+  try {
+    const r = await fetch('/api/live_stats');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+    updateEquityDisplay(d.equity, d.pnl_today, d.pnl_today_pct);
+    if (d.btc_price) updateCurrentPrice(d.btc_price);
+    if (d.active_positions) {
+      updatePositions(d.active_positions);
+      updateChartAnnotations(d.active_positions);
+    }
+    setLastUpdated();
+  } catch(_) {}
+}
+
+async function pollDashboard() {
+  try {
+    const r = await fetch('/api/dashboard_data');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.run) return;
+    updateStatCards(d.run);
+    updateTrades(d.closed_trades || []);
+    if (d.active_positions) {
+      updatePositions(d.active_positions);
+      updateChartAnnotations(d.active_positions);
+      _lastActivePositions = d.active_positions;
+    }
+    if (d.run.timestamp && (d.run.timestamp !== lastRunTs || !_ohlcvData.length)) {
+      lastRunTs = d.run.timestamp;
+      // dashboard_data doesn't carry ohlcv — use dedicated endpoint when chart is empty
+      if (!_ohlcvData.length) loadChartData();
+    }
+    if (d.ml_metrics && d.ml_metrics.feature_importance) renderFeatureImportance(d.ml_metrics.feature_importance);
+    // New features
+    if (d.next_candle_seconds != null) _startCountdown(d.next_candle_seconds);
+    if (d.run_history) {
+      renderConfidenceSparkline(d.run_history);
+      renderSentimentDots(d.run_history);
+    }
+    if (d.vol_regime) updateVolRegime(d.vol_regime, d.atr_pct);
+    if (d.stats) updateAccountSummary(d.stats, d.stats_today);
+    if (d.closed_trades_all) {
+      _closedTradesAll = d.closed_trades_all;
+      const range = _getChartXRange();
+      _renderCandleChartWithTrades(range);
+    }
+    updateHealthBadge(d.run.timestamp);
+  } catch(_) {}
+}
+
+// ── Init ──────────────────────────────────────────────────────────────
+_lastActivePositions = {{ active_positions | tojson if active_positions else '[]' }};
+
+const fi_init = {{ ml_metrics.feature_importance | tojson if ml_metrics and ml_metrics.feature_importance else '{}' }};
+renderFeatureImportance(fi_init);
+
+// Load chart data from dedicated endpoint (avoids numpy serialization issues in HTML)
+async function loadChartData() {
+  try {
+    const r = await fetch('/api/chart_data');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.has_data && d.ohlcv && d.ohlcv.length) {
+      renderCharts(d.ohlcv);
+    }
+  } catch(_) {}
+}
+loadChartData();
+
+pollLiveStats();
+pollDashboard();
+loadShowcase();
+renderDailyPnlChart();
+fetchLogs();
+setInterval(pollLiveStats, 15000);
+setInterval(pollDashboard, 30000);
+setInterval(fetchLogs, 30000);
+setInterval(renderDailyPnlChart, 60000);
+
+function killSwitch() {
+  if (!confirm('Close all positions and cancel all orders?')) return;
+  fetch('/api/kill_switch', {method:'POST'})
+    .then(r => r.json())
+    .then(d => { alert(d.status==='success' ? 'Kill switch executed.' : 'Error: '+d.error); location.reload(); });
+}
+
+// ── Countdown timer ───────────────────────────────────────────────────
+let _nextCandleSecs = 0;
+function _startCountdown(secs) {
+  _nextCandleSecs = secs;
+  const el = document.getElementById('countdown-display');
+  clearInterval(window._countdownTimer);
+  window._countdownTimer = setInterval(() => {
+    if (_nextCandleSecs <= 0) { _nextCandleSecs = 0; if (el) el.textContent = '00:00'; return; }
+    _nextCandleSecs--;
+    const m = Math.floor(_nextCandleSecs / 60).toString().padStart(2, '0');
+    const s = (_nextCandleSecs % 60).toString().padStart(2, '0');
+    if (el) el.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+// ── Volatility regime ─────────────────────────────────────────────────
+function updateVolRegime(regime, atrPct) {
+  const badge = document.getElementById('vol-regime-badge');
+  const atrEl = document.getElementById('val-atr-pct');
+  if (!badge) return;
+  badge.textContent = (regime || 'Normal') + ' Vol';
+  badge.className = 'vol-badge vol-' + (regime || 'normal').toLowerCase();
+  if (atrEl) atrEl.textContent = atrPct ? atrPct.toFixed(2) + '% ATR' : '—';
+}
+
+// ── Confidence sparkline ──────────────────────────────────────────────
+function renderConfidenceSparkline(history) {
+  const el = document.getElementById('chart-confidence-spark');
+  if (!el || !history || !history.length) return;
+  const reversed = [...history].reverse();
+  const x = reversed.map((_, i) => i);
+  const y = reversed.map(r => (r.confidence || 0) * 100);
+  const threshold = {{ (bot_config.confidence_threshold * 100)|int }};
+  Plotly.react(el, [
+    { type: 'scatter', mode: 'lines', x, y,
+      line: { color: '#58a6ff', width: 1.5 },
+      hoverinfo: 'skip', showlegend: false },
+    { type: 'scatter', mode: 'lines', x: [0, x.length - 1], y: [threshold, threshold],
+      line: { color: 'rgba(248,81,73,.5)', width: 1, dash: 'dot' },
+      hoverinfo: 'skip', showlegend: false },
+  ], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    xaxis: { visible: false }, yaxis: { visible: false, range: [0, 100] },
+    showlegend: false,
+  }, { responsive: true, displayModeBar: false, staticPlot: true });
+}
+
+// ── Sentiment history dots ─────────────────────────────────────────────
+function renderSentimentDots(history) {
+  const el = document.getElementById('sentiment-dots');
+  if (!el || !history) return;
+  const last5 = [...history].reverse().slice(0, 5);
+  el.innerHTML = last5.map(r => {
+    const s = r.sentiment || 0;
+    const color = s >= 0.2 ? '#3fb950' : (s <= -0.2 ? '#f85149' : '#8b949e');
+    const title = `Score: ${s.toFixed(2)} (${r.ts ? r.ts.slice(0, 16) : '?'})`;
+    return `<span title="${title}" style="display:inline-block;width:10px;height:10px;
+      border-radius:50%;background:${color};cursor:help;"></span>`;
+  }).join('');
+}
+
+// ── Daily P&L mini chart ──────────────────────────────────────────────
+async function renderDailyPnlChart() {
+  const el = document.getElementById('chart-daily-pnl');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/daily_pnl?days=10');
+    const data = await r.json();
+    if (!data.length) return;
+    const x = data.map(d => d.day);
+    const y = data.map(d => d.pnl);
+    Plotly.react(el, [{
+      type: 'bar', x, y,
+      marker: { color: y.map(v => v >= 0 ? 'rgba(63,185,80,.7)' : 'rgba(248,81,73,.7)') },
+      hovertemplate: '<b>%{x}</b><br>$%{y:.2f}<extra></extra>',
+    }], {
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+      margin: { l: 0, r: 0, t: 0, b: 0 },
+      xaxis: { visible: false }, yaxis: { visible: false },
+      showlegend: false, bargap: 0.2,
+    }, { responsive: true, displayModeBar: false, staticPlot: false });
+  } catch(_) {}
+}
+
+// ── Health badge ──────────────────────────────────────────────────────
+let _lastRunAge = 0;
+function updateHealthBadge(lastTs) {
+  const dot = document.getElementById('health-dot');
+  const lbl = document.getElementById('health-label');
+  if (!dot || !lbl || !lastTs) return;
+  const age = (Date.now() - new Date(lastTs).getTime()) / 1000 / 60; // minutes
+  _lastRunAge = age;
+  // Stale if last run > 3× timeframe
+  const stale = age > {{ bot_config.timeframe_hours * 3 }};
+  dot.style.background = stale ? '#f85149' : '#3fb950';
+  dot.style.animation = stale ? 'none' : 'live-pulse 2s infinite';
+  lbl.style.color = stale ? '#f85149' : '#3fb950';
+  lbl.textContent = stale ? 'Bot Stale' : 'Bot Active';
+}
+
+// ── Trade markers on candle chart ────────────────────────────────────
+let _closedTradesAll = [];
+function _renderCandleChartWithTrades(preserveRange) {
+  const ohlcv = _liveCandleData(_ohlcvData, _currentPrice);
+  if (!ohlcv.length) return;
+  const ts = ohlcv.map(d => d.timestamp);
+  const base = _buildCandleLayout(_lastActivePositions);
+  const xaxis = {
+    ...base.xaxis,
+    rangeslider: { visible: false },
+    rangeselector: {
+      y: 1.04,
+      buttons: [
+        { count: 1, label: '1D', step: 'day',   stepmode: 'backward' },
+        { count: 7, label: '1W', step: 'day',   stepmode: 'backward' },
+        { count: 1, label: '1M', step: 'month', stepmode: 'backward' },
+        { count: 3, label: '3M', step: 'month', stepmode: 'backward' },
+        { step: 'all', label: 'All' },
+      ],
+      bgcolor: '#161b22', activecolor: '#388bfd',
+      bordercolor: '#30363d', borderwidth: 1,
+      font: { color: '#8b949e', size: 11 },
+    },
+  };
+  if (preserveRange) { xaxis.range = preserveRange; xaxis.autorange = false; }
+
+  const traces = [{
+    type: 'candlestick', x: ts,
+    open:  ohlcv.map(d => d.open),
+    high:  ohlcv.map(d => d.high),
+    low:   ohlcv.map(d => d.low),
+    close: ohlcv.map(d => d.close),
+    name: 'BTC/USD',
+    increasing: { line: { color: '#3fb950' } },
+    decreasing: { line: { color: '#f85149' } },
+    hoverlabel: { bgcolor: '#161b22', bordercolor: '#30363d', font: { color: '#e6edf3' } },
+  }];
+
+  // Only add trade markers when no active position
+  if (!_lastActivePositions.length && _closedTradesAll.length) {
+    const winX = [], winY = [], lossX = [], lossY = [];
+    const winText = [], lossText = [];
+    _closedTradesAll.forEach(t => {
+      if (!t.entry_time || !t.entry_price) return;
+      const p = t.pnl_dollars || 0;
+      const label = `Entry $${(t.entry_price||0).toFixed(0)}\nExit $${(t.exit_price||0).toFixed(0)}\nP&L ${p>=0?'+':''}$${p.toFixed(2)}\n${t.exit_reason||''}`;
+      if (p >= 0) { winX.push(t.entry_time); winY.push(t.entry_price); winText.push(label); }
+      else        { lossX.push(t.entry_time); lossY.push(t.entry_price); lossText.push(label); }
+    });
+    if (winX.length) traces.push({
+      type: 'scatter', mode: 'markers', name: 'Win',
+      x: winX, y: winY, text: winText,
+      marker: { symbol: 'triangle-up', size: 10, color: '#3fb950', line: { color: '#0d1117', width: 1 } },
+      hovertemplate: '%{text}<extra></extra>',
+      hoverlabel: { bgcolor: '#161b22', bordercolor: '#3fb950', font: { color: '#e6edf3', size: 11 } },
+    });
+    if (lossX.length) traces.push({
+      type: 'scatter', mode: 'markers', name: 'Loss',
+      x: lossX, y: lossY, text: lossText,
+      marker: { symbol: 'triangle-down', size: 10, color: '#f85149', line: { color: '#0d1117', width: 1 } },
+      hovertemplate: '%{text}<extra></extra>',
+      hoverlabel: { bgcolor: '#161b22', bordercolor: '#f85149', font: { color: '#e6edf3', size: 11 } },
+    });
+  }
+
+  Plotly.react('chart-candle', traces, { ...base, dragmode: 'pan', xaxis }, cfg_main);
+}
+
+// ── Settings panel ────────────────────────────────────────────────────
+function toggleSettings() {
+  const ro = document.getElementById('config-readonly');
+  const ed = document.getElementById('config-edit');
+  const btn = document.getElementById('settings-toggle-btn');
+  const hidden = ed.style.display === 'none';
+  ro.style.display = hidden ? 'none' : '';
+  ed.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '✕ Close' : '⚙ Edit';
+}
+
+async function saveSettings() {
+  const msg = document.getElementById('settings-msg');
+  const payload = {
+    CONFIDENCE_THRESHOLD: parseFloat(document.getElementById('cfg-conf').value) / 100,
+    SENTIMENT_FLOOR:      parseFloat(document.getElementById('cfg-sent').value),
+    SL_ATR_MULT:          parseFloat(document.getElementById('cfg-sl').value),
+    TP_ATR_MULT:          parseFloat(document.getElementById('cfg-tp').value),
+    MAX_RISK_PER_TRADE:   parseFloat(document.getElementById('cfg-risk').value) / 100,
+    DAILY_LOSS_LIMIT_PCT: parseFloat(document.getElementById('cfg-dll').value) / 100,
+    MAX_HOLD_CANDLES:     parseInt(document.getElementById('cfg-hold').value),
+  };
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.status === 'ok') {
+      if (msg) { msg.style.color = '#3fb950'; msg.textContent = '✓ Saved — takes effect next run'; }
+      toggleSettings();
+    } else {
+      if (msg) { msg.style.color = '#f85149'; msg.textContent = 'Error: ' + (d.error || 'unknown'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.color = '#f85149'; msg.textContent = 'Network error'; }
+  }
+}
+
+// ── Log viewer ────────────────────────────────────────────────────────
+function colorizeLog(line) {
+  if (/ERROR|CRITICAL/i.test(line)) return `<span class="log-error">${line}</span>`;
+  if (/WARNING|WARN/i.test(line))   return `<span class="log-warning">${line}</span>`;
+  if (/BUY_ORDER|BUY order/i.test(line)) return `<span class="log-buy">${line}</span>`;
+  if (/SELL|exit|closed/i.test(line))    return `<span class="log-sell">${line}</span>`;
+  return `<span class="log-info">${line}</span>`;
+}
+
+async function fetchLogs() {
+  const el = document.getElementById('log-viewer');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/logs?lines=40');
+    const d = await r.json();
+    const lines = (d.lines || []).map(colorizeLog).join('<br>');
+    el.innerHTML = lines || '<span class="log-info">No logs yet.</span>';
+    const chk = document.getElementById('log-autoscroll');
+    if (chk && chk.checked) el.scrollTop = el.scrollHeight;
+  } catch(_) {}
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SHOWCASE
+// ══════════════════════════════════════════════════════════════════════
+function _sc(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
+function _scClass(id, cls) { const el=document.getElementById(id); if(el) el.className='sc-val '+cls; }
+
+function renderShowcaseChart(equity_curve, trades) {
+  if (!equity_curve || !equity_curve.length) return;
+
+  const dates    = equity_curve.map(p => p.date);
+  const eq       = equity_curve.map(p => p.equity);
+  const bh       = equity_curve.map(p => p.bh_equity);
+
+  // Trade markers
+  const tradeWinX  = [], tradeWinY  = [], tradeLossX = [], tradeLossY = [];
+  (trades || []).forEach(t => {
+    if (t.pnl_dollar > 0) { tradeWinX.push(t.exit_time);  tradeWinY.push(t.capital_after); }
+    else                  { tradeLossX.push(t.exit_time); tradeLossY.push(t.capital_after); }
+  });
+
+  const hover = {bgcolor:'#161b22', bordercolor:'#30363d', font:{color:'#e6edf3'}};
+
+  Plotly.react('chart-showcase', [
+    {
+      type: 'scatter', mode: 'lines', name: 'ISLA Bot',
+      x: dates, y: eq,
+      line: {color: '#3fb950', width: 2},
+      fill: 'tozeroy', fillcolor: 'rgba(63,185,80,0.06)',
+      hoverlabel: hover,
+      hovertemplate: '<b>Bot</b> $%{y:.2f}<extra></extra>',
+    },
+    {
+      type: 'scatter', mode: 'lines', name: 'Buy & Hold BTC',
+      x: dates, y: bh,
+      line: {color: '#8b949e', width: 1.5, dash: 'dot'},
+      hoverlabel: hover,
+      hovertemplate: '<b>B&H</b> $%{y:.2f}<extra></extra>',
+    },
+    {
+      type: 'scatter', mode: 'markers', name: 'TP hit',
+      x: tradeWinX, y: tradeWinY,
+      marker: {symbol: 'triangle-up', size: 9, color: '#3fb950', line:{color:'#0d1117',width:1}},
+      hoverlabel: hover,
+      hovertemplate: 'TP  $%{y:.2f}<extra></extra>',
+    },
+    {
+      type: 'scatter', mode: 'markers', name: 'SL hit',
+      x: tradeLossX, y: tradeLossY,
+      marker: {symbol: 'triangle-down', size: 9, color: '#f85149', line:{color:'#0d1117',width:1}},
+      hoverlabel: hover,
+      hovertemplate: 'SL  $%{y:.2f}<extra></extra>',
+    },
+  ], {
+    paper_bgcolor: '#161b22', plot_bgcolor: '#0d1117',
+    font: {color: '#8b949e', size: 11},
+    margin: {l: 52, r: 20, t: 28, b: 36},
+    xaxis: {gridcolor: '#21262d', showgrid: true, zeroline: false, type: 'date'},
+    yaxis: {gridcolor: '#21262d', showgrid: true, zeroline: false,
+            title: {text: 'Capital ($)', standoff: 4}},
+    legend: {bgcolor: 'rgba(22,27,34,0.8)', bordercolor: '#30363d', borderwidth: 1,
+             font: {color: '#e6edf3', size: 11}},
+    dragmode: 'pan',
+    shapes: [{
+      type: 'line', xref: 'paper', yref: 'y',
+      x0: 0, x1: 1, y0: 100, y1: 100,
+      line: {color: '#30363d', dash: 'dot', width: 1},
+    }],
+  }, {
+    responsive: true, displayModeBar: 'hover', displaylogo: false,
+    scrollZoom: true, doubleClick: 'reset+autosize',
+    modeBarButtonsToRemove: ['select2d','lasso2d','toImage','sendDataToCloud'],
+  });
+}
+
+function renderShowcaseTable(trades) {
+  const el = document.getElementById('showcase-trade-table');
+  if (!el) return;
+  if (!trades || !trades.length) {
+    el.innerHTML = '<p class="muted" style="font-size:13px;">No trades.</p>'; return;
+  }
+
+  const maxAbs = Math.max(...trades.map(t => Math.abs(t.pnl_pct)));
+  const rows = [...trades].reverse().map(t => {
+    const win    = t.pnl_dollar >= 0;
+    const cls    = win ? 'green' : 'red';
+    const barW   = Math.round(Math.abs(t.pnl_pct) / maxAbs * 60);
+    const barClr = win ? '#3fb950' : '#f85149';
+    const sign   = t.pnl_dollar >= 0 ? '+' : '';
+    const badge  = t.exit_reason === 'TP'
+      ? '<span class="badge badge-green">TP</span>'
+      : '<span class="badge badge-muted" style="color:#f85149;background:rgba(248,81,73,.12)">SL</span>';
+    return `<tr>
+      <td class="muted" style="font-size:11px;white-space:nowrap">${t.entry_time}</td>
+      <td class="muted" style="font-size:11px;white-space:nowrap">${t.exit_time}</td>
+      <td>$${t.entry_price.toLocaleString()}</td>
+      <td>$${t.exit_price.toLocaleString()}</td>
+      <td class="${cls}">${sign}${t.pnl_pct.toFixed(2)}%</td>
+      <td>
+        <div class="pnl-bar-wrap">
+          <div class="pnl-bar" style="width:${barW}px;background:${barClr};"></div>
+          <span class="${cls}">${sign}$${Math.abs(t.pnl_dollar).toFixed(2)}</span>
+        </div>
+      </td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table>
+    <thead><tr>
+      <th>Entry Time</th><th>Exit Time</th><th>Entry $</th><th>Exit $</th>
+      <th>P&amp;L %</th><th>P&amp;L $</th><th>Reason</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderShowcaseMetrics(d) {
+  const fmtRet = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  _sc('sc-total-return', fmtRet(d.total_return));
+  _scClass('sc-total-return', d.total_return >= 0 ? 'green sc-val' : 'red sc-val');
+  _sc('sc-bh-return', fmtRet(d.buy_hold_return));
+  _sc('sc-outperf', fmtRet(d.outperformance));
+  _scClass('sc-outperf', d.outperformance >= 0 ? 'green sc-val' : 'red sc-val');
+  _sc('sc-sharpe', d.sharpe.toFixed(2));
+  _scClass('sc-sharpe', d.sharpe >= 1 ? 'green sc-val' : d.sharpe >= 0 ? 'yellow sc-val' : 'red sc-val');
+  _sc('sc-maxdd', '-' + d.max_drawdown.toFixed(1) + '%');
+  _sc('sc-winrate', d.win_rate.toFixed(1) + '%');
+  _scClass('sc-winrate', d.win_rate >= 50 ? 'green sc-val' : 'yellow sc-val');
+  _sc('sc-trades', d.total_trades + ' trades');
+  _sc('sc-pf', d.profit_factor === Infinity ? '∞' : d.profit_factor.toFixed(2));
+  _scClass('sc-pf', d.profit_factor >= 1.5 ? 'green sc-val' : d.profit_factor >= 1 ? 'yellow sc-val' : 'red sc-val');
+  const wl = `+$${d.avg_win.toFixed(2)} / -$${Math.abs(d.avg_loss).toFixed(2)}`;
+  _sc('sc-wl', wl);
+  _sc('sc-generated-at', 'Generated ' + (d.generated_at || '').replace('T', ' '));
+}
+
+async function loadShowcase() {
+  try {
+    const r = await fetch('/api/showcase');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.status === 'not_generated') {
+      document.getElementById('showcase-trade-table').innerHTML =
+        '<p class="muted" style="font-size:13px;">No data yet — click ↻ Regenerate to run the backtest.</p>';
+      return;
+    }
+    renderShowcaseMetrics(d);
+    renderShowcaseChart(d.equity_curve, d.trades);
+    renderShowcaseTable(d.trades);
+  } catch(e) { console.error('Showcase load error', e); }
+}
+
+async function regenShowcase() {
+  const btn = document.getElementById('btn-regen-showcase');
+  if (btn) { btn.textContent = '⏳ Running…'; btn.disabled = true; }
+  try {
+    await fetch('/api/run_showcase', {method: 'POST'});
+    // Poll until the file timestamp changes
+    const started = Date.now();
+    const poll = setInterval(async () => {
+      if (Date.now() - started > 120000) { clearInterval(poll); return; }
+      const r = await fetch('/api/showcase');
+      const d = await r.json();
+      if (d.generated_at) {
+        clearInterval(poll);
+        renderShowcaseMetrics(d);
+        renderShowcaseChart(d.equity_curve, d.trades);
+        renderShowcaseTable(d.trades);
+        if (btn) { btn.textContent = '↻ Regenerate'; btn.disabled = false; }
+      }
+    }, 5000);
+  } catch(e) {
+    if (btn) { btn.textContent = '↻ Regenerate'; btn.disabled = false; }
+  }
+}
+</script>
+{% endblock %}

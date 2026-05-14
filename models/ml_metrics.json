@@ -1,0 +1,28 @@
+{
+  "accuracy": 0.6791,
+  "precision": 0.2356,
+  "recall": 0.1091,
+  "f1": 0.1492,
+  "train_samples": 6967,
+  "test_samples": 1742,
+  "feature_count": 17,
+  "feature_importance": {
+    "obv": 0.119,
+    "atr_14": 0.1,
+    "ema_20": 0.0963,
+    "ema_50": 0.0889,
+    "bb_high": 0.0856,
+    "bb_low": 0.0795,
+    "bb_width": 0.0779,
+    "macd_signal": 0.0519,
+    "macd": 0.0519,
+    "rsi_14": 0.0499,
+    "macd_diff": 0.0478,
+    "dist_ema_50": 0.0462,
+    "dist_ema_20": 0.0376,
+    "volume_sma_ratio": 0.026,
+    "log_return": 0.0209,
+    "candle_body_ratio": 0.017,
+    "ema20_slope": 0.0035
+  }
+}
